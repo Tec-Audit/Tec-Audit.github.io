@@ -2428,6 +2428,15 @@ function sauvegarderDossier(showMsg) {
         bar.style.background = '#2e7d32';
         setTimeout(function() { bar.style.background = ''; }, 2000);
       }
+    } else {
+      var errTxt = (res && res.error) || 'erreur inconnue';
+      infoEl.textContent = '⚠ Sauvegarde impossible : ' + errTxt;
+      var bar2 = document.getElementById('save-bar');
+      bar2.style.background = '#c0392b';
+      setTimeout(function() { bar2.style.background = ''; }, 3000);
+      if (errTxt.indexOf('Session expirée') === 0 && showMsg) {
+        alert('Votre session a expiré. Merci de vous reconnecter — votre brouillon précédent sera proposé à la reconnexion.');
+      }
     }
   });
 }
@@ -2461,6 +2470,8 @@ function chargerDossier() {
           }
         }, 300);
       }
+    } else if (res && !res.ok) {
+      alert('Impossible de vérifier vos dossiers en cours : ' + (res.error || 'erreur inconnue') + '\nVous pouvez continuer, mais signalez ce message au cabinet.');
     }
   });
 }
