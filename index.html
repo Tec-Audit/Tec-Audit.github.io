@@ -324,16 +324,18 @@
            onerror="this.style.display='none'">
     </div>
     <div class="login-title">Accès sécurisé</div>
-    <div class="login-sub">Formulaire Constitution de Société</div>
+    <div class="login-sub">Saisissez votre email — vous recevrez un code de connexion, sans mot de passe.</div>
     <div class="login-field">
       <label>Email</label>
       <input type="email" id="login-email" placeholder="votre@email.fr" autocomplete="email">
     </div>
-    <div class="login-field">
-      <label>Mot de passe</label>
-      <input type="password" id="login-mdp" placeholder="••••••••" autocomplete="current-password">
+    <div class="login-field" id="login-code-field" style="display:none;">
+      <label>Code reçu par email</label>
+      <input type="text" id="login-code" placeholder="123456" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+      <div style="font-size:12px;color:#777;margin-top:6px;">Code valable 10 minutes — pensez à vérifier vos spams.
+        <a href="#" onclick="demanderCode();return false;" style="color:var(--blue);">Renvoyer le code</a></div>
     </div>
-    <button class="login-btn" id="login-btn" onclick="doLogin()">Accéder au formulaire</button>
+    <button class="login-btn" id="login-btn" onclick="doLogin()">Recevoir mon code</button>
     <div class="login-error" id="login-error"></div>
   </div>
 </div>
@@ -2238,24 +2240,57 @@ var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw_XJdPun8zgFhTV9
 var SESSION = { email: '', nom: '', token: '' };
 
 // ── Login ──────────────────────────────────────────────────────
-function doLogin() {
-  var email = (document.getElementById('login-email').value || '').trim();
-  var mdp   = document.getElementById('login-mdp').value || '';
-  var btn   = document.getElementById('login-btn');
-  var err   = document.getElementById('login-error');
+var LOGIN_ETAPE = 'email'; // 'email' → 'code'
 
-  if (!email || !mdp) {
-    err.textContent = 'Veuillez renseigner email et mot de passe.';
+function doLogin() {
+  if (LOGIN_ETAPE === 'email') demanderCode();
+  else verifierCode();
+}
+
+function demanderCode() {
+  var email = (document.getElementById('login-email').value || '').trim();
+  var btn = document.getElementById('login-btn');
+  var err = document.getElementById('login-error');
+  if (!email) {
+    err.textContent = 'Veuillez renseigner votre adresse email.';
     err.style.display = 'block'; return;
   }
+  btn.disabled = true;
+  btn.textContent = 'Envoi du code…';
+  err.style.display = 'none';
 
+  callScript({ action: 'demanderCode', email: email }, function(res) {
+    btn.disabled = false;
+    if (res && res.ok) {
+      LOGIN_ETAPE = 'code';
+      document.getElementById('login-code-field').style.display = '';
+      document.getElementById('login-code').value = '';
+      document.getElementById('login-code').focus();
+      btn.textContent = 'Se connecter';
+    } else {
+      err.textContent = (res && res.error) || 'Erreur lors de l\u2019envoi du code.';
+      err.style.display = 'block';
+      btn.textContent = LOGIN_ETAPE === 'email' ? 'Recevoir mon code' : 'Se connecter';
+    }
+  });
+}
+
+function verifierCode() {
+  var email = (document.getElementById('login-email').value || '').trim();
+  var code = (document.getElementById('login-code').value || '').trim();
+  var btn = document.getElementById('login-btn');
+  var err = document.getElementById('login-error');
+  if (!code) {
+    err.textContent = 'Saisissez le code reçu par email.';
+    err.style.display = 'block'; return;
+  }
   btn.disabled = true;
   btn.textContent = 'Connexion en cours…';
   err.style.display = 'none';
 
-  callScript({ action: 'login', email: email, motdepasse: mdp }, function(res) {
+  callScript({ action: 'verifierCode', email: email, code: code }, function(res) {
     if (res && res.ok) {
-      SESSION.email = email;
+      SESSION.email = email.toLowerCase();
       SESSION.nom   = res.nom || email;
       SESSION.token = res.token || '';
       document.getElementById('login-screen').style.display = 'none';
@@ -2268,14 +2303,14 @@ function doLogin() {
       err.textContent = (res && res.error) || 'Erreur de connexion.';
       err.style.display = 'block';
       btn.disabled = false;
-      btn.textContent = 'Accéder au formulaire';
+      btn.textContent = 'Se connecter';
     }
   });
 }
 
 // Appui Entrée sur les champs login
 document.addEventListener('DOMContentLoaded', function() {
-  ['login-email','login-mdp'].forEach(function(id) {
+  ['login-email','login-code'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') doLogin();
@@ -2286,17 +2321,18 @@ document.addEventListener('DOMContentLoaded', function() {
 // ── Appel Apps Script ─────────────────────────────────────────
 // ── Mode démo : actif tant que l'URL Apps Script n'est pas configurée ──
 var DEMO_MODE = APPS_SCRIPT_URL.indexOf('A_REMPLACER') === 0;
-var DEMO_COMPTE = { email: 'demo@tec-audit.fr', mdp: 'demo2026', nom: 'Compte Démo' };
+var DEMO_CODE = '123456';
 
 function callScript(payload, callback) {
   if (DEMO_MODE) {
     setTimeout(function() {
       switch (payload.action) {
-        case 'login':
-          if (payload.email.toLowerCase() === DEMO_COMPTE.email && payload.motdepasse === DEMO_COMPTE.mdp) {
-            callback({ ok: true, nom: DEMO_COMPTE.nom + ' (mode démo)', token: 'demo' });
+        case 'demanderCode': callback({ ok: true }); break;
+        case 'verifierCode':
+          if (payload.code === DEMO_CODE) {
+            callback({ ok: true, nom: 'Compte Démo (mode démo)', token: 'demo' });
           } else {
-            callback({ ok: false, error: 'Mode démo — utilisez ' + DEMO_COMPTE.email + ' / ' + DEMO_COMPTE.mdp });
+            callback({ ok: false, error: 'Mode démo — le code est ' + DEMO_CODE });
           }
           break;
         case 'save':   callback({ ok: true }); break;
@@ -2379,6 +2415,7 @@ function sauvegarderDossier(showMsg) {
   callScript({
     action: 'save',
     email: SESSION.email,
+    token: SESSION.token,
     denomination: denomination,
     etape: etape,
     dossier: dossier
@@ -2397,7 +2434,7 @@ function sauvegarderDossier(showMsg) {
 
 // ── Charger dossier existant ──────────────────────────────────
 function chargerDossier() {
-  callScript({ action: 'load', email: SESSION.email }, function(res) {
+  callScript({ action: 'load', email: SESSION.email, token: SESSION.token }, function(res) {
     if (res && res.ok && res.dossier) {
       var msg = 'Vous avez un dossier en cours';
       if (res.denomination) msg += ' (' + res.denomination + ')';
@@ -2443,7 +2480,10 @@ function seDeconnecter() {
     document.getElementById('save-bar').style.display = 'none';
     document.body.classList.remove('logged-in');
     document.getElementById('login-email').value = '';
-    document.getElementById('login-mdp').value = '';
+    document.getElementById('login-code').value = '';
+    document.getElementById('login-code-field').style.display = 'none';
+    document.getElementById('login-btn').textContent = 'Recevoir mon code';
+    LOGIN_ETAPE = 'email';
   }, 800);
 }
 
