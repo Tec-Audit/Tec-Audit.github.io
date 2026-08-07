@@ -35,20 +35,19 @@
   .lien-bas a:hover { text-decoration:underline; }
   .ok { background:#e8f5e9; border-left:3px solid #2e7d32; color:#2e7d32; font-size:12.5px; padding:10px 12px; border-radius:0 3px 3px 0; margin-top:13px; line-height:1.6; }
 
-  /* Dashboard par type d'entité */
-  .dashboard { background:white; border-radius:6px; margin:16px 24px 0; padding:15px 20px 17px; box-shadow:0 1px 3px rgba(22,33,62,.07); }
-  .dash-titre { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.9px; color:var(--muted); margin-bottom:13px; }
-  .dash-row { display:grid; grid-template-columns:repeat(auto-fill,minmax(118px,1fr)); gap:11px; }
-  .dash-item { border:1.5px solid var(--border); border-radius:5px; padding:10px 12px; cursor:pointer;
-               background:white; text-align:left; width:100%;
-               transition:border-color .15s ease, background-color .15s ease; }
-  .dash-item:hover { border-color:var(--blue); background:#f7f9fc; }
-  .dash-item.actif { border-color:var(--blue); background:var(--blue-light); }
-  .dash-n { font-size:19px; font-weight:700; color:var(--blue-dark); line-height:1.1; }
-  .dash-f { font-size:11.5px; color:var(--text); font-weight:500; margin:2px 0 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .dash-bar { height:3px; background:#eef1f6; border-radius:2px; overflow:hidden; }
-  .dash-bar i { display:block; height:100%; background:var(--blue); }
-  .dash-p { font-size:10px; color:var(--muted); margin-top:3px; }
+  /* Répartition : anneau + légende */
+  .dashboard { background:white; border-radius:6px; padding:15px 20px 17px; box-shadow:0 1px 3px rgba(22,33,62,.07); flex:1; min-width:340px; }
+  .dash-titre { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.9px; color:var(--muted); margin-bottom:10px; display:flex; align-items:center; gap:10px; }
+  .dash-reset { background:var(--blue-light); border:none; color:var(--blue-dark); font-size:10.5px; font-weight:600; padding:3px 9px; border-radius:10px; cursor:pointer; }
+  .donut-row { display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
+  .legende { display:flex; flex-direction:column; gap:2px; flex:1; min-width:210px; }
+  .leg { display:flex; align-items:center; gap:8px; background:none; border:none; padding:4px 8px; border-radius:4px;
+         font-size:12.5px; color:var(--text); cursor:pointer; text-align:left; transition:background-color .15s ease; }
+  .leg:hover { background:#f7f9fc; }
+  .leg.actif { background:var(--blue-light); font-weight:600; }
+  .leg i { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+  .leg b { margin-left:auto; font-weight:600; color:var(--blue-dark); }
+  .leg span { color:var(--muted); font-size:11px; width:34px; text-align:right; }
 
   #app { display:none; flex-direction:column; min-height:100vh; }
   .top { background:var(--blue-nav); color:white; padding:12px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
@@ -75,8 +74,9 @@
          background:none; border:none; border-bottom:3px solid transparent; transition:color .15s ease; }
   .tab.active { color:var(--blue-dark); border-bottom-color:var(--blue); }
 
-  .stats { display:flex; gap:14px; padding:18px 24px 0; flex-wrap:wrap; }
-  .stat { background:white; border-radius:6px; padding:12px 20px; border-left:3px solid var(--blue); min-width:120px; }
+  .apercu { display:flex; gap:14px; padding:18px 24px 0; flex-wrap:wrap; align-items:stretch; }
+  .stats { display:flex; flex-direction:column; gap:14px; }
+  .stat { background:white; border-radius:6px; padding:12px 20px; border-left:3px solid var(--blue); min-width:130px; flex:1; display:flex; flex-direction:column; justify-content:center; }
   .stat-n { font-size:22px; font-weight:700; color:var(--blue-dark); }
   .stat-l { font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
 
@@ -117,9 +117,17 @@
 
   .table-wrap { overflow-x:auto; background:white; border-radius:6px; box-shadow:0 1px 3px rgba(22,33,62,.07); }
   table { border-collapse:collapse; width:100%; font-size:12.5px; }
-  th { background:var(--blue-nav); color:white; text-align:left; padding:9px 12px; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.5px; white-space:nowrap; position:sticky; top:0; }
-  td { padding:8px 12px; border-bottom:1px solid #eef1f6; white-space:nowrap; }
-  tr:hover td { background:#f7f9fc; }
+  th { background:var(--blue-nav); color:white; text-align:left; padding:0; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.5px; white-space:nowrap; position:sticky; top:0; }
+  .th-btn { background:none; border:none; color:inherit; font:inherit; text-transform:inherit; letter-spacing:inherit;
+            padding:10px 12px; cursor:pointer; display:flex; align-items:center; gap:5px; width:100%; }
+  .th-btn:hover { background:rgba(255,255,255,.08); }
+  .tri { font-size:8px; width:10px; }
+  td { padding:9px 12px; border-bottom:1px solid #eef1f6; white-space:nowrap; }
+  tr.ligne { cursor:pointer; }
+  tr.ligne:hover td { background:#f7f9fc; }
+  tr.ligne.ouverte td { background:var(--blue-light); border-bottom:none; }
+  tr.detail > td { background:#fbfcfe; white-space:normal; padding:4px 18px 14px; border-bottom:2px solid var(--blue-light);
+                   animation:deplier .18s ease-out; }
 
   #loading { display:none; position:fixed; inset:0; background:rgba(238,241,246,.85); align-items:center; justify-content:center; font-size:14px; color:var(--blue-dark); z-index:40; }
   @media (prefers-reduced-motion: reduce) {
@@ -188,12 +196,12 @@
   </header>
 
   <nav class="tabs" role="tablist" aria-label="Vues">
-    <button class="tab active" role="tab" aria-selected="true" data-vue="contacts" onclick="changerVue('contacts')">Fiches contacts</button>
-    <button class="tab" role="tab" aria-selected="false" data-vue="dossiers" onclick="changerVue('dossiers')">Tableau des dossiers</button>
+    <button class="tab active" role="tab" aria-selected="true" data-vue="dossiers" onclick="changerVue('dossiers')">Dossiers</button>
+    <button class="tab" role="tab" aria-selected="false" data-vue="contacts" onclick="changerVue('contacts')">Contacts</button>
   </nav>
 
   <div class="bar">
-    <input type="search" id="q" aria-label="Rechercher un dossier ou un contact" placeholder="Rechercher : soci&eacute;t&eacute;, dirigeant, email, code dossier, SIRET, ville&hellip;">
+    <input type="search" id="q" aria-label="Rechercher un dossier ou un contact" placeholder="Rechercher ( / ) : soci&eacute;t&eacute;, dirigeant, email, SIRET&hellip;">
     <div class="filtre"><label for="f-perimetre">P&eacute;rim&egrave;tre</label><select id="f-perimetre"></select></div>
     <div class="filtre"><label for="f-associe">Associ&eacute;</label><select id="f-associe"></select></div>
     <div class="filtre"><label for="f-collab">Collaborateur</label><select id="f-collab"></select></div>
@@ -202,8 +210,10 @@
     <button class="btn-ghost" onclick="exporterCSV()">Exporter CSV</button>
   </div>
 
-  <div class="stats" id="stats"></div>
-  <div class="dashboard" id="dashboard"></div>
+  <div class="apercu">
+    <div class="stats" id="stats"></div>
+    <div class="dashboard" id="dashboard"></div>
+  </div>
   <main class="main"><div id="liste"></div></main>
 </div>
 

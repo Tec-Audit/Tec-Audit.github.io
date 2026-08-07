@@ -5,7 +5,9 @@ var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwbTEFCrnTOjmhycG
 
 var SESSION = { email: '', nom: '', role: '', token: '' };
 var DATA = { colonnes: [], lignes: [], idx: {} };
-var VUE = 'contacts';
+var VUE = 'dossiers';
+var TRI = { col: 'Dénomination', dir: 1 };
+var LIGNE_OUVERTE = null;
 
 function api(payload, cb) {
   fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) })
@@ -193,27 +195,65 @@ function rendre() {
 
   $('stats').innerHTML = stat(L.length, 'dossiers') + stat(Object.keys(contacts).length, 'contacts');
 
-  // Dashboard par type d'entité (forme juridique), cliquable pour filtrer
+  rendreDonut(L);
+  if (VUE === 'contacts') rendreContacts(L); else rendreDossiers(L);
+}
+
+// ── Répartition par type d'entité : anneau SVG cliquable ──
+var COULEURS = ['#0E4194', '#4E7FD0', '#93B3E8', '#16213E', '#B45309', '#2E7D32', '#6B7A99', '#C8A84B'];
+
+function rendreDonut(L) {
   var formes = {};
   L.forEach(function (l) {
     var f = normForme(val(l, 'Forme'));
     formes[f] = (formes[f] || 0) + 1;
   });
   var cles = Object.keys(formes).sort(function (a, b) { return formes[b] - formes[a]; });
-  var actif = $('f-forme').value;
-  $('dashboard').innerHTML = '<div class="dash-titre">Répartition par type d\u2019entité</div>' +
-    '<div class="dash-row">' + cles.map(function (f) {
-      var pct = Math.round(formes[f] / L.length * 100);
-      return '<button class="dash-item' + (normForme(actif) === f ? ' actif' : '') + '" aria-pressed="' +
-        (normForme(actif) === f ? 'true' : 'false') + '" onclick="filtrerForme(\'' +
-        f.replace(/'/g, "\\'") + '\')">' +
-        '<div class="dash-n">' + formes[f] + '</div>' +
-        '<div class="dash-f">' + esc(f) + '</div>' +
-        '<div class="dash-bar"><i style="width:' + pct + '%"></i></div>' +
-        '<div class="dash-p">' + pct + '\u00a0%</div></button>';
-    }).join('') + '</div>';
+  // Top 7 + « Autres » regroupés pour garder l'anneau lisible
+  var top = cles.slice(0, 7);
+  var autres = cles.slice(7).reduce(function (s, k) { return s + formes[k]; }, 0);
+  var parts = top.map(function (f, i) { return { nom: f, n: formes[f], c: COULEURS[i] }; });
+  if (autres > 0) parts.push({ nom: 'Autres', n: autres, c: '#B8C0CE' });
 
-  if (VUE === 'contacts') rendreContacts(L); else rendreDossiers(L);
+  var total = L.length || 1;
+  var actif = $('f-forme').value ? normForme($('f-forme').value) : '';
+  var R = 54, EP = 16, C = 70;
+  var circ = 2 * Math.PI * R;
+  var offset = 0;
+  var segs = parts.map(function (p) {
+    var frac = p.n / total;
+    var estActif = actif && actif === normForme(p.nom);
+    var seg = '<circle r="' + R + '" cx="' + C + '" cy="' + C + '" fill="none"' +
+      ' stroke="' + p.c + '" stroke-width="' + (estActif ? EP + 5 : EP) + '"' +
+      ' stroke-dasharray="' + (frac * circ - 2) + ' ' + (circ - frac * circ + 2) + '"' +
+      ' stroke-dashoffset="' + (-offset * circ) + '"' +
+      ' style="cursor:pointer;transition:stroke-width .15s ease;"' +
+      ' onclick="filtrerForme(\'' + p.nom.replace(/'/g, "\\'") + '\')">' +
+      '<title>' + esc(p.nom) + ' : ' + p.n + '</title></circle>';
+    offset += frac;
+    return seg;
+  }).join('');
+
+  var legende = parts.map(function (p) {
+    var estActif = actif && actif === normForme(p.nom);
+    return '<button class="leg' + (estActif ? ' actif' : '') + '" aria-pressed="' + (estActif ? 'true' : 'false') +
+      '" onclick="filtrerForme(\'' + p.nom.replace(/'/g, "\\'") + '\')">' +
+      '<i style="background:' + p.c + '"></i>' + esc(p.nom) +
+      '<b>' + p.n + '</b><span>' + Math.round(p.n / total * 100) + '%</span></button>';
+  }).join('');
+
+  $('dashboard').innerHTML =
+    '<div class="dash-titre">Répartition par type d\u2019entité' +
+    (actif ? ' <button class="dash-reset" onclick="filtrerForme($(\'f-forme\').value)">✕ réinitialiser</button>' : '') +
+    '</div>' +
+    '<div class="donut-row">' +
+      '<svg viewBox="0 0 140 140" width="140" height="140" role="img" aria-label="Répartition des dossiers par forme juridique">' +
+        '<g transform="rotate(-90 70 70)">' + segs + '</g>' +
+        '<text x="70" y="66" text-anchor="middle" style="font-size:24px;font-weight:700;fill:#0B316F;font-family:Poppins,sans-serif;">' + L.length + '</text>' +
+        '<text x="70" y="84" text-anchor="middle" style="font-size:9px;fill:#5a6070;letter-spacing:.5px;font-family:Poppins,sans-serif;">DOSSIERS</text>' +
+      '</svg>' +
+      '<div class="legende">' + legende + '</div>' +
+    '</div>';
 }
 
 // Regroupe les variantes d'écriture d'après les valeurs réelles de la base :
@@ -346,17 +386,59 @@ function modifier(ligne, colonne, valeur, el) {
   });
 }
 
+var COLS_TABLE = ['Dénomination', 'Forme', 'Nom', 'Ville', 'Collaborateur', 'Associé responsable', 'Statut LDM'];
+
 function rendreDossiers(L) {
-  var cols = ['Code dossier', 'Dénomination', 'Forme', 'Ville', 'Nom', 'Email',
-              'Collaborateur', 'Associé responsable', 'Statut LDM', 'Périmètre'];
+  var cols = COLS_TABLE.slice();
+  if (SESSION.role !== 'associe') {
+    cols = cols.filter(function (c) { return c !== 'Collaborateur' && c !== 'Associé responsable'; });
+  }
+  // Tri
+  var iTri = DATA.idx[TRI.col];
+  var tri = L.slice().sort(function (a, b) {
+    var x = String(a[iTri] || '').toLowerCase(), y = String(b[iTri] || '').toLowerCase();
+    if (!x && y) return 1; if (x && !y) return -1;
+    return TRI.dir * x.localeCompare(y, 'fr');
+  });
+
   var html = '<div class="table-wrap"><table><thead><tr>' +
-    cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') +
-    '</tr></thead><tbody>' +
-    L.slice(0, 500).map(function (l) {
-      return '<tr>' + cols.map(function (c) { return '<td>' + esc(val(l, c)) + '</td>'; }).join('') + '</tr>';
+    cols.map(function (c) {
+      var actif = TRI.col === c;
+      return '<th aria-sort="' + (actif ? (TRI.dir === 1 ? 'ascending' : 'descending') : 'none') + '">' +
+        '<button class="th-btn" onclick="trier(\'' + c + '\')">' + esc(c) +
+        '<span class="tri">' + (actif ? (TRI.dir === 1 ? '▲' : '▼') : '') + '</span></button></th>';
+    }).join('') + '</tr></thead><tbody>' +
+    tri.map(function (l) {
+      var id = l[DATA.iLigne];
+      var ouverte = LIGNE_OUVERTE === id;
+      var ldm = val(l, 'Statut LDM');
+      var cls = ldm === 'SIGNÉE' ? 'ok' : (ldm === 'EN ATTENTE' ? 'warn' : 'neutre');
+      return '<tr class="ligne' + (ouverte ? ' ouverte' : '') + '" tabindex="0" aria-expanded="' + ouverte + '"' +
+        ' onclick="ouvrirLigne(' + id + ')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();ouvrirLigne(' + id + ');}">' +
+        cols.map(function (c) {
+          var v = val(l, c);
+          if (c === 'Statut LDM') return '<td><span class="tag ' + cls + '">' + esc(v || '—') + '</span></td>';
+          return '<td>' + esc(v) + '</td>';
+        }).join('') + '</tr>' +
+        (ouverte ? '<tr class="detail"><td colspan="' + cols.length + '">' + ficheDossier(l) + '</td></tr>' : '');
     }).join('') + '</tbody></table></div>' +
-    (L.length > 500 ? '<p class="vide">500 premiers résultats affichés sur ' + L.length + ' — affinez la recherche.</p>' : '');
-  $('liste').innerHTML = L.length ? html : '<p class="vide">Aucun résultat.</p>';
+    (tri.length ? '' : '<p class="vide">Aucun résultat.</p>');
+  $('liste').innerHTML = html;
+  if (LIGNE_OUVERTE) {
+    var d = document.querySelector('.detail');
+    if (d) d.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function trier(col) {
+  if (TRI.col === col) TRI.dir = -TRI.dir;
+  else { TRI.col = col; TRI.dir = 1; }
+  rendre();
+}
+
+function ouvrirLigne(id) {
+  LIGNE_OUVERTE = (LIGNE_OUVERTE === id) ? null : id;
+  rendre();
 }
 
 function changerVue(v) {
@@ -389,6 +471,14 @@ document.addEventListener('DOMContentLoaded', function () {
   $('mdp2').addEventListener('keydown', function (e) { if (e.key === 'Enter') definirMdp(); });
   verifierLienReinit();
   ['q'].forEach(function (id) { $(id).addEventListener('input', rendre); });
+  // Raccourci « / » : focus sur la recherche depuis n'importe où
+  document.addEventListener('keydown', function (e) {
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT' &&
+        document.activeElement.tagName !== 'SELECT' && $('app').style.display !== 'none') {
+      e.preventDefault();
+      $('q').focus();
+    }
+  });
   ['f-perimetre', 'f-associe', 'f-collab', 'f-ldm', 'f-forme'].forEach(function (id) {
     $(id).addEventListener('change', rendre);
   });
