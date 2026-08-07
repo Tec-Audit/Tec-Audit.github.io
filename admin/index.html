@@ -81,6 +81,17 @@
   .stat-l { font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
 
   .main { padding:18px 24px 40px; }
+  .lettre { background:white; border-radius:6px; margin-bottom:10px; padding:16px 20px; box-shadow:0 1px 3px rgba(22,33,62,.07); }
+  .lettre-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+  .lettre-head strong { font-size:14.5px; color:var(--blue-dark); }
+  .lettre-meta { font-size:12.5px; color:var(--muted); line-height:1.7; }
+  .lettre-actions { display:flex; align-items:center; gap:10px; margin-top:12px; flex-wrap:wrap; }
+  .lettre-actions select { padding:8px 10px; border:1.5px solid var(--border); border-radius:5px; font-family:inherit; font-size:12.5px; }
+  .btn-envoyer { padding:9px 18px; background:var(--blue-dark); color:white; border:none; border-radius:5px; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .btn-envoyer:hover { background:var(--blue); }
+  .btn-envoyer:disabled { opacity:.6; }
+  .btn-rep { padding:8px 14px; background:white; border:1.5px solid var(--border-dark, #b0b8c8); border-radius:5px; font-size:12px; cursor:pointer; }
+  .tag.envoyee { background:var(--blue-light); color:var(--blue-dark); }
   .alerte { background:#fff3e0; border-left:3px solid #ef6c00; color:#b45309; padding:14px 18px; border-radius:0 4px 4px 0; font-size:13px; line-height:1.7; }
   .vide { color:var(--muted); font-size:13.5px; padding:24px 0; text-align:center; }
 
@@ -198,6 +209,7 @@
   <nav class="tabs" role="tablist" aria-label="Vues">
     <button class="tab active" role="tab" aria-selected="true" data-vue="dossiers" onclick="changerVue('dossiers')">Dossiers</button>
     <button class="tab" role="tab" aria-selected="false" data-vue="contacts" onclick="changerVue('contacts')">Contacts</button>
+    <button class="tab" id="tab-lettres" role="tab" aria-selected="false" data-vue="lettres" onclick="changerVue('lettres')" style="display:none;">Lettres confraternelles</button>
   </nav>
 
   <div class="bar">

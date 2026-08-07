@@ -41,6 +41,7 @@ function login() {
       $('app').style.display = 'flex';
       $('user-nom').textContent = res.nom;
       $('user-role').textContent = res.role === 'associe' ? 'Associé' : 'Collaborateur';
+      if (res.role === 'associe') $('tab-lettres').style.display = '';
       chargerDossiers();
     } else {
       btn.disabled = false;
@@ -189,6 +190,7 @@ function lignesFiltrees() {
 
 // ── Rendu ────────────────────────────────────────────────────
 function rendre() {
+  if (VUE === 'lettres') return;
   var L = lignesFiltrees();
   var contacts = {};
   L.forEach(function (l) { contacts[val(l, 'Email') || '(sans email)'] = 1; });
@@ -443,12 +445,98 @@ function ouvrirLigne(id) {
 
 function changerVue(v) {
   VUE = v;
+  var horsDossiers = (v === 'lettres');
+  document.querySelector('.apercu').style.display = horsDossiers ? 'none' : '';
+  document.querySelector('.bar').style.display = horsDossiers ? 'none' : '';
+  if (v === 'lettres') { chargerLettres(); }
   document.querySelectorAll('.tab').forEach(function (t) {
     var actif = t.dataset.vue === v;
     t.classList.toggle('active', actif);
     t.setAttribute('aria-selected', actif ? 'true' : 'false');
   });
   rendre();
+}
+
+// ── Lettres confraternelles (associés) ───────────────────────
+var LETTRES = { colonnes: [], lignes: [], signataires: [] };
+
+function chargerLettres() {
+  document.querySelectorAll('.tab').forEach(function (t) {
+    var actif = t.dataset.vue === 'lettres';
+    t.classList.toggle('active', actif);
+    t.setAttribute('aria-selected', actif ? 'true' : 'false');
+  });
+  $('liste').innerHTML = '<p class="vide">Chargement…</p>';
+  api({ action: 'adminLettres', email: SESSION.email, token: SESSION.token }, function (res) {
+    if (!res || !res.ok) { $('liste').innerHTML = '<div class="alerte">' + esc((res && res.error) || 'Erreur') + '</div>'; return; }
+    LETTRES = res;
+    rendreLettres();
+  });
+}
+
+function lv(l, col) { return l[LETTRES.colonnes.indexOf(col)] || ''; }
+
+function rendreLettres() {
+  var L = LETTRES.lignes.slice().reverse();
+  if (!L.length) {
+    $('liste').innerHTML = '<p class="vide">Aucune lettre confraternelle en attente — la file se remplit automatiquement quand un nouveau client déclare un expert-comptable actuel.</p>';
+    return;
+  }
+  $('liste').innerHTML = L.map(function (l) {
+    var ligne = l[l.length - 1];
+    var statut = lv(l, 'Statut');
+    var aEmettre = statut === 'À émettre';
+    var envoyee = statut.indexOf('Envoyée') === 0;
+    var cls = aEmettre ? 'warn' : (statut.indexOf('OBJECTION') > -1 ? 'warn' : (envoyee ? 'envoyee' : 'ok'));
+    var hono = lv(l, 'Honoraires confrère');
+    var honoTxt = { oui: 'réglés', non: '⚠ pas encore réglés', litige: '⚠ EN LITIGE' }[hono] || hono || 'n.c.';
+    return '<div class="lettre">' +
+      '<div class="lettre-head"><div><strong>' + esc(lv(l, 'Dénomination')) + '</strong>' +
+      '<div class="lettre-meta">Demandé le ' + esc(lv(l, 'Date demande')) + ' · client : ' + esc(lv(l, 'Email client')) + '</div></div>' +
+      '<span class="tag ' + cls + '">' + esc(statut) + '</span></div>' +
+      '<div class="lettre-meta">' +
+      'Confrère : <b>' + esc(lv(l, 'Cabinet confrère') || '—') + '</b>' +
+      (lv(l, 'Confrère') ? ' (' + esc(lv(l, 'Confrère')) + ')' : '') +
+      ' · ' + esc(lv(l, 'Email confrère') || 'email manquant ⚠') +
+      '<br>Dernier exercice traité : ' + esc(lv(l, 'Dernier exercice') || 'n.c.') +
+      ' · Honoraires du confrère : ' + esc(honoTxt) +
+      (lv(l, 'Envoyée le') ? '<br>Envoyée le ' + esc(lv(l, 'Envoyée le')) + ' — échéance accord tacite : ' + esc(lv(l, 'Échéance accord tacite')) : '') +
+      '</div>' +
+      (aEmettre ?
+        '<div class="lettre-actions">Signataire : <select id="sig-' + ligne + '">' +
+        LETTRES.signataires.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('') +
+        '</select><button class="btn-envoyer" onclick="envoyerLettre(' + ligne + ', this)">📨 Envoyer la lettre</button>' +
+        '<span class="maj" role="status" aria-live="polite"></span></div>' : '') +
+      (envoyee ?
+        '<div class="lettre-actions">Le confrère a répondu ? ' +
+        '<button class="btn-rep" onclick="reponseLettre(' + ligne + ', false, this)">✓ Sans objection</button>' +
+        '<button class="btn-rep" onclick="reponseLettre(' + ligne + ', true, this)">⚠ Objection</button>' +
+        '<span class="maj" role="status" aria-live="polite"></span></div>' : '') +
+      '</div>';
+  }).join('');
+}
+
+function envoyerLettre(ligne, btn) {
+  var sig = $('sig-' + ligne).value;
+  if (!confirm('Envoyer la lettre confraternelle, signée ' + sig + ' ?\n\nElle partira par email au confrère avec le PDF en pièce jointe. Sans opposition sous 15 jours, la reprise sera automatiquement actée.')) return;
+  btn.disabled = true; btn.textContent = 'Envoi…';
+  api({ action: 'adminEnvoyerLettre', email: SESSION.email, token: SESSION.token, ligne: ligne, signataire: sig },
+    function (res) {
+      if (res && res.ok) { chargerLettres(); }
+      else {
+        btn.disabled = false; btn.textContent = '📨 Envoyer la lettre';
+        var m = btn.parentNode.querySelector('.maj'); m.textContent = '⚠ ' + ((res && res.error) || 'échec'); m.className = 'maj ko';
+      }
+    });
+}
+
+function reponseLettre(ligne, objection, btn) {
+  btn.disabled = true;
+  api({ action: 'adminLettreReponse', email: SESSION.email, token: SESSION.token, ligne: ligne, objection: objection },
+    function (res) {
+      if (res && res.ok) { chargerLettres(); }
+      else { btn.disabled = false; alert((res && res.error) || 'Échec'); }
+    });
 }
 
 function exporterCSV() {
