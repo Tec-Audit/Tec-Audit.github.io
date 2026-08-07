@@ -535,16 +535,38 @@ function fermerApercu() { $('apercu-modale').style.display = 'none'; }
 
 function envoyerLettre(ligne, btn) {
   var sig = $('sig-' + ligne).value;
-  if (!confirm('Envoyer la lettre confraternelle, signée ' + sig + ' ?\n\nElle partira par email au confrère avec le PDF en pièce jointe. Sans opposition sous 15 jours, la reprise sera automatiquement actée.')) return;
+  var msg = btn.parentNode.querySelector('.maj');
+  if (!confirm('Envoyer la lettre confraternelle, signée ' + sig + ' ?\n\nElle partira par email au confrère avec le PDF en pièce jointe. Sans opposition sous 15 jours, la reprise sera automatiquement actée.')) {
+    msg.textContent = 'Envoi annulé.'; msg.className = 'maj';
+    return;
+  }
   btn.disabled = true; btn.textContent = 'Envoi…';
+  msg.textContent = '⏳ Envoi en cours (génération du PDF, cela peut prendre quelques secondes)…';
+  msg.className = 'maj';
+
+  var repondu = false;
+  // Filet de sécurité : si le serveur ne répond pas, on le dit au lieu de rester figé
+  var minuteur = setTimeout(function () {
+    if (repondu) return;
+    btn.disabled = false; btn.textContent = '📨 Envoyer la lettre';
+    msg.textContent = '⚠ Aucune réponse du serveur après 60 s. Rechargez la page et vérifiez le statut avant de réessayer.';
+    msg.className = 'maj ko';
+  }, 60000);
+
   api({ action: 'adminEnvoyerLettre', email: SESSION.email, token: SESSION.token, ligne: ligne, signataire: sig },
     function (res) {
+      repondu = true; clearTimeout(minuteur);
       if (res && res.ok) {
+        msg.textContent = '✓ Lettre envoyée et archivée dans Drive.';
+        msg.className = 'maj ok';
         alert('✓ Lettre envoyée au confrère, signée ' + sig + '.\nLe PDF est archivé dans le dossier Drive du client.');
         chargerLettres();
       } else {
         btn.disabled = false; btn.textContent = '📨 Envoyer la lettre';
-        alert('⚠ Envoi impossible\n\n' + ((res && res.error) || 'erreur inconnue'));
+        var txt = (res && res.error) || 'erreur inconnue';
+        msg.textContent = '⚠ ' + txt;
+        msg.className = 'maj ko';
+        alert('⚠ Envoi impossible\n\n' + txt);
       }
     });
 }
