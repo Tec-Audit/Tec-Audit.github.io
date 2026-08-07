@@ -204,30 +204,41 @@ function rendre() {
   $('dashboard').innerHTML = '<div class="dash-titre">Répartition par type d\u2019entité</div>' +
     '<div class="dash-row">' + cles.map(function (f) {
       var pct = Math.round(formes[f] / L.length * 100);
-      return '<div class="dash-item' + (normForme(actif) === f ? ' actif' : '') + '" onclick="filtrerForme(\'' +
+      return '<button class="dash-item' + (normForme(actif) === f ? ' actif' : '') + '" aria-pressed="' +
+        (normForme(actif) === f ? 'true' : 'false') + '" onclick="filtrerForme(\'' +
         f.replace(/'/g, "\\'") + '\')">' +
         '<div class="dash-n">' + formes[f] + '</div>' +
         '<div class="dash-f">' + esc(f) + '</div>' +
         '<div class="dash-bar"><i style="width:' + pct + '%"></i></div>' +
-        '<div class="dash-p">' + pct + '\u00a0%</div></div>';
+        '<div class="dash-p">' + pct + '\u00a0%</div></button>';
     }).join('') + '</div>';
 
   if (VUE === 'contacts') rendreContacts(L); else rendreDossiers(L);
 }
 
-// Regroupe les variantes d'écriture : S.A.R.L. / SARL / Sarl → SARL
+// Regroupe les variantes d'écriture d'après les valeurs réelles de la base :
+// S.C.I. / SCI / Soc. Civile / Société civile → une seule famille, etc.
 function normForme(f) {
-  var s = String(f || '').toUpperCase().replace(/[.\s]/g, '');
+  var s = String(f || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[.\s]/g, '');
   if (!s) return 'Non renseignée';
-  if (s.indexOf('SARL') === 0 || s.indexOf('EURL') === 0) return s.indexOf('EURL') === 0 ? 'EURL' : 'SARL';
   if (s.indexOf('SASU') === 0) return 'SASU';
   if (s.indexOf('SAS') === 0) return 'SAS';
-  if (s.indexOf('SCI') === 0) return 'SCI';
-  if (s.indexOf('SELARL') === 0 || s.indexOf('SELAS') === 0) return 'SEL';
-  if (s.indexOf('SCP') === 0 || s.indexOf('SCM') === 0) return s.slice(0, 3);
-  if (s.indexOf('SA') === 0 && s.length <= 3) return 'SA';
-  if (s.indexOf('EI') === 0 || s.indexOf('ENTREPRENEUR') === 0) return 'Entreprise individuelle';
+  if (s.indexOf('EURL') === 0) return 'EURL';
+  if (s.indexOf('SARL') === 0) return 'SARL';
+  if (s.indexOf('SELARL') === 0 || s.indexOf('SELAS') === 0 || s.indexOf('SELURL') === 0) return 'SEL (prof. lib.)';
+  if (s.indexOf('SCM') === 0) return 'SCM';
+  if (s.indexOf('SCP') === 0) return 'SCP';
+  if (s.indexOf('SCI') === 0 || s.indexOf('SOCCIV') === 0 || s.indexOf('SOCIETECIV') === 0 ||
+      s.indexOf('STECIV') === 0 || s.indexOf('SCEA') === 0) return 'SCI / Sté civile';
+  if (s.indexOf('ENTINDIV') === 0 || s.indexOf('ENTREPRENEURINDIV') === 0 ||
+      s.indexOf('ENTREPRISEINDIV') === 0 || s === 'EI' || s.indexOf('EIRL') === 0) return 'Entreprise individuelle';
+  if (s.indexOf('PERSONNEPHYSIQUE') === 0) return 'Personne physique';
   if (s.indexOf('ASSOC') === 0) return 'Association';
+  if (s.indexOf('STEPARTICIPATION') === 0 || s.indexOf('SOCIETEPARTICIPATION') === 0 ||
+      s.indexOf('SOCPARTICIPATION') === 0) return 'Sté de participation';
+  if (s.indexOf('SNC') === 0) return 'SNC';
+  if (s.indexOf('INDIVISION') === 0) return 'Indivision';
+  if (s === 'SA') return 'SA';
   return String(f).trim();
 }
 
@@ -239,6 +250,12 @@ function filtrerForme(f) {
 
 function stat(n, label) {
   return '<div class="stat"><div class="stat-n">' + n + '</div><div class="stat-l">' + label + '</div></div>';
+}
+
+function basculerContact(btn) {
+  var carte = btn.closest('.contact');
+  var ouvert = carte.classList.toggle('open');
+  btn.setAttribute('aria-expanded', ouvert ? 'true' : 'false');
 }
 
 function rendreContacts(L) {
@@ -255,12 +272,15 @@ function rendreContacts(L) {
     var g = groupes[e];
     var p = g[0];
     var nom = [val(p, 'Civilité'), val(p, 'Prénom'), val(p, 'Nom')].filter(Boolean).join(' ') || '—';
-    return '<div class="contact" onclick="this.classList.toggle(\'open\')">' +
-      '<div class="contact-head">' +
+    return '<div class="contact">' +
+      '<button class="contact-head" aria-expanded="false" onclick="basculerContact(this)">' +
         '<div><div class="contact-nom">' + esc(nom) + '</div>' +
         '<div class="contact-mail">' + esc(e) + (val(p, 'Mobile') ? ' · ' + esc(val(p, 'Mobile')) : '') + '</div></div>' +
-        '<div class="contact-count">' + g.length + ' dossier' + (g.length > 1 ? 's' : '') + '</div>' +
-      '</div>' +
+        '<div style="display:flex;align-items:center;gap:10px;">' +
+          '<span class="contact-count">' + g.length + ' dossier' + (g.length > 1 ? 's' : '') + '</span>' +
+          '<span class="chevron" aria-hidden="true">▼</span>' +
+        '</div>' +
+      '</button>' +
       '<div class="contact-body">' + g.map(ficheDossier).join('') + '</div>' +
     '</div>';
   }).join('');
@@ -279,8 +299,13 @@ function ficheDossier(l) {
     ['Associé', val(l, 'Associé responsable')], ['Collaborateur', val(l, 'Collaborateur')]
   ].filter(function (c) { return c[1]; });
 
-  var comm = [val(l, 'Marqueur'), val(l, 'Commentaire attribution'), val(l, 'Commentaire collaborateur')]
-    .filter(Boolean).join(' · ');
+  // Notes internes de la revue : réservées aux associés, et seulement là où
+  // elles aident à décider (dossiers en attente d'arbitrage de périmètre).
+  var comm = '';
+  if (SESSION.role === 'associe' && val(l, 'Périmètre') === 'À sortir (à confirmer)') {
+    comm = [val(l, 'Marqueur'), val(l, 'Commentaire attribution'), val(l, 'Commentaire collaborateur')]
+      .filter(Boolean).join(' · ');
+  }
 
   return '<div class="dossier">' +
     '<div class="dossier-head">' +
@@ -302,7 +327,7 @@ function boutonsModif(l, ligne) {
   return '<div class="actions">Périmètre : <select onchange="modifier(' + ligne + ", 'Périmètre', this.value, this)\">" +
     opts.map(function (o) {
       return '<option' + (o === per ? ' selected' : '') + '>' + esc(o) + '</option>';
-    }).join('') + '</select><span class="maj"></span></div>';
+    }).join('') + '</select><span class="maj" role="status" aria-live="polite"></span></div>';
 }
 
 function modifier(ligne, colonne, valeur, el) {
@@ -336,7 +361,11 @@ function rendreDossiers(L) {
 
 function changerVue(v) {
   VUE = v;
-  document.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.vue === v); });
+  document.querySelectorAll('.tab').forEach(function (t) {
+    var actif = t.dataset.vue === v;
+    t.classList.toggle('active', actif);
+    t.setAttribute('aria-selected', actif ? 'true' : 'false');
+  });
   rendre();
 }
 
