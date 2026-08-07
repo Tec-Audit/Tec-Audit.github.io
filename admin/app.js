@@ -505,7 +505,8 @@ function rendreLettres() {
       (aEmettre ?
         '<div class="lettre-actions">Signataire : <select id="sig-' + ligne + '">' +
         LETTRES.signataires.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('') +
-        '</select><button class="btn-envoyer" onclick="envoyerLettre(' + ligne + ', this)">📨 Envoyer la lettre</button>' +
+        '</select><button class="btn-rep" onclick="apercuLettre(' + ligne + ', this)">👁 Aperçu</button>' +
+        '<button class="btn-envoyer" onclick="envoyerLettre(' + ligne + ', this)">📨 Envoyer la lettre</button>' +
         '<span class="maj" role="status" aria-live="polite"></span></div>' : '') +
       (envoyee ?
         '<div class="lettre-actions">Le confrère a répondu ? ' +
@@ -516,16 +517,34 @@ function rendreLettres() {
   }).join('');
 }
 
+function apercuLettre(ligne, btn) {
+  var sig = $('sig-' + ligne).value;
+  btn.disabled = true; btn.textContent = 'Chargement…';
+  api({ action: 'adminApercuLettre', email: SESSION.email, token: SESSION.token, ligne: ligne, signataire: sig },
+    function (res) {
+      btn.disabled = false; btn.textContent = '👁 Aperçu';
+      if (!res || !res.ok) { alert('Aperçu impossible : ' + ((res && res.error) || 'erreur')); return; }
+      $('apercu-corps').srcdoc = res.html;
+      $('apercu-dest').textContent = res.destinataire || '(email du confrère manquant)';
+      $('apercu-modale').style.display = 'flex';
+      $('apercu-fermer').focus();
+    });
+}
+
+function fermerApercu() { $('apercu-modale').style.display = 'none'; }
+
 function envoyerLettre(ligne, btn) {
   var sig = $('sig-' + ligne).value;
   if (!confirm('Envoyer la lettre confraternelle, signée ' + sig + ' ?\n\nElle partira par email au confrère avec le PDF en pièce jointe. Sans opposition sous 15 jours, la reprise sera automatiquement actée.')) return;
   btn.disabled = true; btn.textContent = 'Envoi…';
   api({ action: 'adminEnvoyerLettre', email: SESSION.email, token: SESSION.token, ligne: ligne, signataire: sig },
     function (res) {
-      if (res && res.ok) { chargerLettres(); }
-      else {
+      if (res && res.ok) {
+        alert('✓ Lettre envoyée au confrère, signée ' + sig + '.\nLe PDF est archivé dans le dossier Drive du client.');
+        chargerLettres();
+      } else {
         btn.disabled = false; btn.textContent = '📨 Envoyer la lettre';
-        var m = btn.parentNode.querySelector('.maj'); m.textContent = '⚠ ' + ((res && res.error) || 'échec'); m.className = 'maj ko';
+        alert('⚠ Envoi impossible\n\n' + ((res && res.error) || 'erreur inconnue'));
       }
     });
 }
@@ -538,6 +557,10 @@ function reponseLettre(ligne, objection, btn) {
       else { btn.disabled = false; alert((res && res.error) || 'Échec'); }
     });
 }
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && $('apercu-modale') && $('apercu-modale').style.display === 'flex') fermerApercu();
+});
 
 function exporterCSV() {
   var L = lignesFiltrees();
