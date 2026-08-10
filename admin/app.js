@@ -12,8 +12,19 @@ var LIGNE_OUVERTE = null;
 function api(payload, cb) {
   fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) })
     .then(function (r) { return r.json(); })
-    .then(cb)
+    .then(function (res) {
+      // Une session expirée interrompt tout : on le dit clairement plutôt que
+      // de laisser l'utilisateur cliquer dans le vide.
+      if (res && !res.ok && /Session expirée/.test(res.error || '')) { sessionExpiree(); return; }
+      cb(res);
+    })
     .catch(function (e) { cb({ ok: false, error: 'Erreur réseau : ' + e.message }); });
+}
+
+function sessionExpiree() {
+  if ($('expire').style.display === 'flex') return;
+  $('expire').style.display = 'flex';
+  $('expire-btn').focus();
 }
 
 function $(id) { return document.getElementById(id); }
