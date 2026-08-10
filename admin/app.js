@@ -360,7 +360,68 @@ function ficheDossier(l) {
     }).join('') + '</div>' +
     (comm ? '<div class="comm">💬 ' + esc(comm) + '</div>' : '') +
     (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
+    blocLDM(l, lignesSheet) +
   '</div>';
+}
+
+// ── Lettre de mission ────────────────────────────────────────
+function blocLDM(l, ligne) {
+  var estSCI = /SCI|CIVIL/i.test(val(l, 'Forme'));
+  var assoc = val(l, 'Associé responsable') || 'Marc BIJAOUI';
+  var opts = ['Marc BIJAOUI', 'Samy HADDAD'].map(function (s) {
+    return '<option' + (s === assoc ? ' selected' : '') + '>' + esc(s) + '</option>';
+  }).join('');
+  return '<div class="actions ldm-bloc">' +
+    '<b style="color:var(--blue-dark);">Lettre de mission</b>' +
+    '<select id="ldm-modele-' + ligne + '" aria-label="Modèle de lettre de mission">' +
+      '<option value="generale"' + (estSCI ? '' : ' selected') + '>Modèle général</option>' +
+      '<option value="sci"' + (estSCI ? ' selected' : '') + '>Modèle SCI (150 € HT)</option>' +
+    '</select>' +
+    '<select id="ldm-sig-' + ligne + '" aria-label="Signataire">' + opts + '</select>' +
+    '<button class="btn-rep" onclick="apercuLDM(' + ligne + ', this)">👁 Aperçu</button>' +
+    '<button class="btn-envoyer" onclick="genererLDM(' + ligne + ', this)">📄 Générer le PDF</button>' +
+    '<span class="maj" role="status" aria-live="polite"></span></div>';
+}
+
+function paramsLDM(ligne) {
+  return {
+    email: SESSION.email, token: SESSION.token, ligne: ligne,
+    modele: $('ldm-modele-' + ligne).value,
+    signataire: $('ldm-sig-' + ligne).value
+  };
+}
+
+function apercuLDM(ligne, btn) {
+  btn.disabled = true; btn.textContent = 'Chargement…';
+  var p = paramsLDM(ligne); p.action = 'adminLDM'; p.apercu = true;
+  api(p, function (res) {
+    btn.disabled = false; btn.textContent = '👁 Aperçu';
+    if (!res || !res.ok) { alert('Aperçu impossible : ' + ((res && res.error) || 'erreur')); return; }
+    $('apercu-corps').srcdoc = res.html;
+    $('apercu-dest').textContent = res.denomination + ' — modèle ' +
+      (res.modele === 'sci' ? 'SCI' : 'général') + ', signée ' + res.signataire;
+    $('apercu-modale').style.display = 'flex';
+    $('apercu-fermer').focus();
+  });
+}
+
+function genererLDM(ligne, btn) {
+  var msg = btn.parentNode.querySelector('.maj');
+  btn.disabled = true; btn.textContent = 'Génération…';
+  msg.textContent = '⏳ Création du PDF…'; msg.className = 'maj';
+  var p = paramsLDM(ligne); p.action = 'adminLDM';
+  api(p, function (res) {
+    btn.disabled = false; btn.textContent = '📄 Générer le PDF';
+    if (res && res.ok) {
+      msg.innerHTML = '✓ PDF créé : <a href="' + res.lien + '" target="_blank" rel="noopener">' +
+        esc(res.nom) + '</a> — téléchargez-le puis déposez-le dans Yousign pour signature.';
+      msg.className = 'maj ok';
+      window.open(res.lien, '_blank');
+    } else {
+      msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
+      msg.className = 'maj ko';
+    }
+  });
 }
 
 function boutonsModif(l, ligne) {
