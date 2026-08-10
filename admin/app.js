@@ -366,7 +366,6 @@ function ficheDossier(l) {
 
 // ── Lettre de mission ────────────────────────────────────────
 function blocLDM(l, ligne) {
-  var estSCI = /SCI|CIVIL/i.test(val(l, 'Forme'));
   var assoc = val(l, 'Associé responsable') || 'Marc BIJAOUI';
   var opts = ['Marc BIJAOUI', 'Samy HADDAD'].map(function (s) {
     return '<option' + (s === assoc ? ' selected' : '') + '>' + esc(s) + '</option>';
@@ -374,12 +373,12 @@ function blocLDM(l, ligne) {
   return '<div class="actions ldm-bloc">' +
     '<b style="color:var(--blue-dark);">Lettre de mission</b>' +
     '<select id="ldm-modele-' + ligne + '" aria-label="Modèle de lettre de mission">' +
-      '<option value="generale"' + (estSCI ? '' : ' selected') + '>Modèle général</option>' +
-      '<option value="sci"' + (estSCI ? ' selected' : '') + '>Modèle SCI (150 € HT)</option>' +
+      '<option value="generale" selected>Modèle général</option>' +
+      '<option value="sci">Modèle SCI</option>' +
     '</select>' +
     '<select id="ldm-sig-' + ligne + '" aria-label="Signataire">' + opts + '</select>' +
     '<button class="btn-rep" onclick="apercuLDM(' + ligne + ', this)">👁 Aperçu</button>' +
-    '<button class="btn-envoyer" onclick="genererLDM(' + ligne + ', this)">📄 Générer le PDF</button>' +
+    '<button class="btn-envoyer" onclick="genererLDM(' + ligne + ', this)">📄 Télécharger le PDF</button>' +
     '<span class="maj" role="status" aria-live="polite"></span></div>';
 }
 
@@ -411,17 +410,28 @@ function genererLDM(ligne, btn) {
   msg.textContent = '⏳ Création du PDF…'; msg.className = 'maj';
   var p = paramsLDM(ligne); p.action = 'adminLDM';
   api(p, function (res) {
-    btn.disabled = false; btn.textContent = '📄 Générer le PDF';
-    if (res && res.ok) {
-      msg.innerHTML = '✓ PDF créé : <a href="' + res.lien + '" target="_blank" rel="noopener">' +
-        esc(res.nom) + '</a> — téléchargez-le puis déposez-le dans Yousign pour signature.';
+    btn.disabled = false; btn.textContent = '📄 Télécharger le PDF';
+    if (res && res.ok && res.pdf) {
+      telechargerPdf(res.pdf, res.nom);
+      msg.textContent = '✓ ' + res.nom + ' téléchargé — déposez-le dans Yousign pour signature.';
       msg.className = 'maj ok';
-      window.open(res.lien, '_blank');
     } else {
       msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
       msg.className = 'maj ko';
     }
   });
+}
+
+// Reconstitue le PDF depuis le base64 et déclenche le téléchargement
+function telechargerPdf(b64, nom) {
+  var bin = atob(b64);
+  var buf = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  var url = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' }));
+  var a = document.createElement('a');
+  a.href = url; a.download = nom;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
 }
 
 function boutonsModif(l, ligne) {
