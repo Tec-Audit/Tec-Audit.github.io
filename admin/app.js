@@ -529,14 +529,45 @@ function modifier(ligne, colonne, valeur, el) {
   });
 }
 
-var COLS_TABLE = ['Dénomination', 'Forme', 'Nom', 'Ville', 'Collaborateur', 'Associé responsable', 'Statut LDM'];
+// Colonnes du tableau : l'information est regroupée pour tenir dans la
+// largeur de l'écran. { titre, tri (colonne réelle), largeur, rendu }
+function colonnesTable() {
+  var c = [
+    { t: 'Société', tri: 'Dénomination', l: '30%', r: function (l) {
+        var nom = [val(l, 'Prénom'), val(l, 'Nom')].filter(Boolean).join(' ');
+        return '<div class="c1">' + esc(val(l, 'Dénomination')) + '</div>' +
+               (nom ? '<div class="c2">' + esc(nom) + '</div>' : ''); } },
+    { t: 'Forme', tri: 'Forme', l: '13%', r: function (l) {
+        return '<span class="c2">' + esc(normForme(val(l, 'Forme'))) + '</span>'; } },
+    { t: 'Ville', tri: 'Ville', l: '15%', r: function (l) {
+        return '<div class="c1">' + esc(val(l, 'Ville')) + '</div>' +
+               (val(l, 'CP') ? '<div class="c2">' + esc(val(l, 'CP')) + '</div>' : ''); } }
+  ];
+  if (SESSION.role === 'associe') {
+    c.push({ t: 'Suivi par', tri: 'Collaborateur', l: '24%', r: function (l) {
+      return '<div class="c1">' + esc(val(l, 'Collaborateur') || '—') + '</div>' +
+             '<div class="c2">' + esc(val(l, 'Associé responsable')) + '</div>'; } });
+  }
+  c.push({ t: 'LDM', tri: 'Statut LDM', l: '18%', r: function (l) {
+    var s = val(l, 'Statut LDM');
+    var cls = s === 'SIGNÉE' ? 'ok' : (s === 'EN ATTENTE' ? 'warn' : 'neutre');
+    return '<span class="tag ' + cls + '" title="' + esc(s) + '">' + esc(statutCourt(s)) + '</span>'; } });
+  return c;
+}
+
+// Les statuts de la campagne sont trop longs pour une colonne : version courte
+// à l'écran, libellé complet au survol.
+function statutCourt(s) {
+  s = String(s || '');
+  if (!s) return '—';
+  if (s.indexOf('À VÉRIFIER') === 0) return 'À vérifier';
+  if (s.indexOf('HORS CAMPAGNE') === 0) return 'Hors campagne';
+  if (s.indexOf('JAMAIS ENVOYÉE') === 0) return 'Jamais envoyée';
+  return s.length > 16 ? s.slice(0, 15) + '…' : s;
+}
 
 function rendreDossiers(L) {
-  var cols = COLS_TABLE.slice();
-  if (SESSION.role !== 'associe') {
-    cols = cols.filter(function (c) { return c !== 'Collaborateur' && c !== 'Associé responsable'; });
-  }
-  // Tri
+  var cols = colonnesTable();
   var iTri = DATA.idx[TRI.col];
   var tri = L.slice().sort(function (a, b) {
     var x = String(a[iTri] || '').toLowerCase(), y = String(b[iTri] || '').toLowerCase();
@@ -546,23 +577,17 @@ function rendreDossiers(L) {
 
   var html = '<div class="table-wrap"><table><thead><tr>' +
     cols.map(function (c) {
-      var actif = TRI.col === c;
-      return '<th aria-sort="' + (actif ? (TRI.dir === 1 ? 'ascending' : 'descending') : 'none') + '">' +
-        '<button class="th-btn" onclick="trier(\'' + c + '\')">' + esc(c) +
+      var actif = TRI.col === c.tri;
+      return '<th style="width:' + c.l + '" aria-sort="' + (actif ? (TRI.dir === 1 ? 'ascending' : 'descending') : 'none') + '">' +
+        '<button class="th-btn" onclick="trier(\'' + c.tri + '\')">' + esc(c.t) +
         '<span class="tri">' + (actif ? (TRI.dir === 1 ? '▲' : '▼') : '') + '</span></button></th>';
     }).join('') + '</tr></thead><tbody>' +
     tri.map(function (l) {
       var id = l[DATA.iLigne];
       var ouverte = LIGNE_OUVERTE === id;
-      var ldm = val(l, 'Statut LDM');
-      var cls = ldm === 'SIGNÉE' ? 'ok' : (ldm === 'EN ATTENTE' ? 'warn' : 'neutre');
       return '<tr class="ligne' + (ouverte ? ' ouverte' : '') + '" tabindex="0" aria-expanded="' + ouverte + '"' +
         ' onclick="ouvrirLigne(' + id + ')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();ouvrirLigne(' + id + ');}">' +
-        cols.map(function (c) {
-          var v = val(l, c);
-          if (c === 'Statut LDM') return '<td><span class="tag ' + cls + '">' + esc(v || '—') + '</span></td>';
-          return '<td>' + esc(v) + '</td>';
-        }).join('') + '</tr>' +
+        cols.map(function (c) { return '<td>' + c.r(l) + '</td>'; }).join('') + '</tr>' +
         (ouverte ? '<tr class="detail"><td colspan="' + cols.length + '">' + ficheDossier(l) + '</td></tr>' : '');
     }).join('') + '</tbody></table></div>' +
     (tri.length ? '' : '<p class="vide">Aucun résultat.</p>');

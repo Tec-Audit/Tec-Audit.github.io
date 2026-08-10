@@ -186,14 +186,18 @@
   .maj.ok { color:#2e7d32; }
   .maj.ko { color:#c0392b; }
 
-  .table-wrap { overflow-x:auto; background:white; border-radius:6px; box-shadow:0 1px 3px rgba(22,33,62,.07); }
+  .table-wrap { overflow-x:hidden; background:white; border-radius:6px; box-shadow:0 1px 3px rgba(22,33,62,.07); }
   table { border-collapse:collapse; width:100%; font-size:12.5px; }
   th { background:var(--blue-nav); color:white; text-align:left; padding:0; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.5px; white-space:nowrap; position:sticky; top:0; }
   .th-btn { background:none; border:none; color:inherit; font:inherit; text-transform:inherit; letter-spacing:inherit;
             padding:10px 12px; cursor:pointer; display:flex; align-items:center; gap:5px; width:100%; }
   .th-btn:hover { background:rgba(255,255,255,.08); }
   .tri { font-size:8px; width:10px; }
-  td { padding:9px 12px; border-bottom:1px solid #eef1f6; white-space:nowrap; }
+  table { table-layout:fixed; }
+  td { padding:8px 12px; border-bottom:1px solid #eef1f6; vertical-align:middle; }
+  td .c1 { font-size:12.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  td .c2 { font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  td .tag { display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }
   tr.ligne { cursor:pointer; }
   tr.ligne:hover td { background:#f7f9fc; }
   tr.ligne.ouverte td { background:var(--blue-light); border-bottom:none; }
@@ -219,6 +223,11 @@
   }
 
   #loading { display:none; position:fixed; inset:0; background:rgba(238,241,246,.85); align-items:center; justify-content:center; font-size:14px; color:var(--blue-dark); z-index:40; }
+  @media (max-width:760px) {
+    table thead th:nth-child(2), table tbody td:nth-child(2),
+    table thead th:nth-child(3), table tbody td:nth-child(3) { display:none; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation:none !important; transition:none !important; }
   }
