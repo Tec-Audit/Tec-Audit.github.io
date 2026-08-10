@@ -203,11 +203,22 @@ function rendre() {
 
 // ── Répartition par type d'entité : anneau SVG cliquable ──
 var COULEURS = ['#0E4194', '#4E7FD0', '#93B3E8', '#16213E', '#B45309', '#2E7D32', '#6B7A99', '#C8A84B'];
+var REPARTITION = 'forme';   // 'forme' ou 'activite'
+
+function changerRepartition(mode) { REPARTITION = mode; rendre(); }
+
+// Regroupe les libellés SIRENE trop longs en familles lisibles
+function normActivite(a) {
+  var s = String(a || '').trim();
+  if (!s) return 'Non renseignée';
+  return s.length > 42 ? s.slice(0, 40).replace(/[\s,;.]+$/, '') + '…' : s;
+}
 
 function rendreDonut(L) {
+  var parActivite = (REPARTITION === 'activite');
   var formes = {};
   L.forEach(function (l) {
-    var f = normForme(val(l, 'Forme'));
+    var f = parActivite ? normActivite(val(l, 'Activité')) : normForme(val(l, 'Forme'));
     formes[f] = (formes[f] || 0) + 1;
   });
   var cles = Object.keys(formes).sort(function (a, b) { return formes[b] - formes[a]; });
@@ -218,7 +229,7 @@ function rendreDonut(L) {
   if (autres > 0) parts.push({ nom: 'Autres', n: autres, c: '#B8C0CE' });
 
   var total = L.length || 1;
-  var actif = $('f-forme').value ? normForme($('f-forme').value) : '';
+  var actif = (!parActivite && $('f-forme').value) ? normForme($('f-forme').value) : '';
   var R = 54, EP = 16, C = 70;
   var circ = 2 * Math.PI * R;
   var offset = 0;
@@ -229,8 +240,9 @@ function rendreDonut(L) {
       ' stroke="' + p.c + '" stroke-width="' + (estActif ? EP + 5 : EP) + '"' +
       ' stroke-dasharray="' + (frac * circ - 2) + ' ' + (circ - frac * circ + 2) + '"' +
       ' stroke-dashoffset="' + (-offset * circ) + '"' +
-      ' style="cursor:pointer;transition:stroke-width .15s ease;"' +
-      ' onclick="filtrerForme(\'' + p.nom.replace(/'/g, "\\'") + '\')">' +
+      (parActivite ? ' style="transition:stroke-width .15s ease;"' :
+        ' style="cursor:pointer;transition:stroke-width .15s ease;" onclick="filtrerForme(\'' +
+        p.nom.replace(/'/g, "\\'") + '\')"') + '>' +
       '<title>' + esc(p.nom) + ' : ' + p.n + '</title></circle>';
     offset += frac;
     return seg;
@@ -239,14 +251,19 @@ function rendreDonut(L) {
   var legende = parts.map(function (p) {
     var estActif = actif && actif === normForme(p.nom);
     return '<button class="leg' + (estActif ? ' actif' : '') + '" aria-pressed="' + (estActif ? 'true' : 'false') +
-      '" onclick="filtrerForme(\'' + p.nom.replace(/'/g, "\\'") + '\')">' +
+      '"' + (parActivite ? ' disabled style="cursor:default;"' :
+        ' onclick="filtrerForme(\'' + p.nom.replace(/'/g, "\\'") + '\')"') + '>' +
       '<i style="background:' + p.c + '"></i>' + esc(p.nom) +
       '<b>' + p.n + '</b><span>' + Math.round(p.n / total * 100) + '%</span></button>';
   }).join('');
 
   $('dashboard').innerHTML =
-    '<div class="dash-titre">Répartition par type d\u2019entité' +
-    (actif ? ' <button class="dash-reset" onclick="filtrerForme($(\'f-forme\').value)">✕ réinitialiser</button>' : '') +
+    '<div class="dash-titre">Répartition par' +
+    '<span class="bascule">' +
+      '<button class="' + (parActivite ? '' : 'on') + '" onclick="changerRepartition(\'forme\')">type d\u2019entité</button>' +
+      '<button class="' + (parActivite ? 'on' : '') + '" onclick="changerRepartition(\'activite\')">activité</button>' +
+    '</span>' +
+    (actif ? '<button class="dash-reset" onclick="filtrerForme($(\'f-forme\').value)">✕ réinitialiser</button>' : '') +
     '</div>' +
     '<div class="donut-row">' +
       '<svg viewBox="0 0 140 140" width="140" height="140" role="img" aria-label="Répartition des dossiers par forme juridique">' +
@@ -337,7 +354,8 @@ function ficheDossier(l) {
     ['Code dossier', val(l, 'Code dossier')], ['Forme', val(l, 'Forme')],
     ['SIRET', val(l, 'SIRET')], ['Ville', [val(l, 'CP'), val(l, 'Ville')].filter(Boolean).join(' ')],
     ['Activité', val(l, 'Activité')], ['Clôture', val(l, 'Clôture')],
-    ['Honoraires', val(l, 'Honoraires HT') ? val(l, 'Honoraires HT') + ' € HT / ' + val(l, 'Périodicité') : ''],
+    ['Honoraires', (SESSION.role === 'associe' && val(l, 'Honoraires HT'))
+      ? val(l, 'Honoraires HT') + ' € HT / ' + val(l, 'Périodicité') : ''],
     ['Associé', val(l, 'Associé responsable')], ['Collaborateur', val(l, 'Collaborateur')]
   ].filter(function (c) { return c[1]; });
 
@@ -360,7 +378,7 @@ function ficheDossier(l) {
     }).join('') + '</div>' +
     (comm ? '<div class="comm">💬 ' + esc(comm) + '</div>' : '') +
     (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
-    blocLDM(l, lignesSheet) +
+    (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
   '</div>';
 }
 
