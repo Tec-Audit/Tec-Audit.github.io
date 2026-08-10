@@ -207,11 +207,9 @@ var REPARTITION = 'forme';   // 'forme' ou 'activite'
 
 function changerRepartition(mode) { REPARTITION = mode; rendre(); }
 
-// Regroupe les libellés SIRENE trop longs en familles lisibles
 function normActivite(a) {
   var s = String(a || '').trim();
-  if (!s) return 'Non renseignée';
-  return s.length > 42 ? s.slice(0, 40).replace(/[\s,;.]+$/, '') + '…' : s;
+  return s || 'Non renseignée';
 }
 
 function rendreDonut(L) {
@@ -253,8 +251,9 @@ function rendreDonut(L) {
     return '<button class="leg' + (estActif ? ' actif' : '') + '" aria-pressed="' + (estActif ? 'true' : 'false') +
       '"' + (parActivite ? ' disabled style="cursor:default;"' :
         ' onclick="filtrerForme(\'' + p.nom.replace(/'/g, "\\'") + '\')"') + '>' +
-      '<i style="background:' + p.c + '"></i>' + esc(p.nom) +
-      '<b>' + p.n + '</b><span>' + Math.round(p.n / total * 100) + '%</span></button>';
+      '<i style="background:' + p.c + '"></i>' +
+      '<span class="leg-nom" title="' + esc(p.nom) + '">' + esc(p.nom) + '</span>' +
+      '<b>' + p.n + '</b><span class="leg-pct">' + Math.round(p.n / total * 100) + '%</span></button>';
   }).join('');
 
   $('dashboard').innerHTML =
@@ -687,7 +686,7 @@ function carteEntree(e) {
   var meta = 'Reçu le ' + esc(e.date) + ' · ' + esc(e.contact || e.email) +
     ' · ' + (e.parcours === 'nouveau-client' ? 'Nouveau client / reprise' : 'Constitution') +
     (e.codeDossier ? ' · dossier <b>' + esc(e.codeDossier) + '</b>' : '') +
-    (e.drive ? ' · <a href="' + esc(e.drive) + '" target="_blank" rel="noopener">pièces</a>' : '');
+    (e.drive ? ' · <button class="lien-pieces" onclick="voirPieces(\'' + esc(e.drive) + '\', this)">📎 pièces jointes</button>' : '');
 
   return '<div class="entree">' +
     '<div class="entree-tete"><div><strong>' + esc(e.denomination || '(sans dénomination)') + '</strong>' +
@@ -762,6 +761,47 @@ function actionEntree(e) {
       esc(e.denomination).replace(/'/g, "\\'") + '\')">→ Ouvrir le dossier</button></div></div>';
   }
   return '';
+}
+
+// Liste les pièces et les télécharge via le portail (jamais via Drive)
+function voirPieces(url, btn) {
+  var zone = btn.closest('.entree').querySelector('.pieces') || (function () {
+    var d = document.createElement('div');
+    d.className = 'pieces';
+    btn.closest('.entree').appendChild(d);
+    return d;
+  })();
+  if (zone.dataset.ouvert === '1') { zone.dataset.ouvert = '0'; zone.innerHTML = ''; return; }
+  zone.dataset.ouvert = '1';
+  zone.innerHTML = '<span class="maj">Chargement des pièces…</span>';
+  api({ action: 'adminPieces', email: SESSION.email, token: SESSION.token, url: url }, function (res) {
+    if (!res || !res.ok) { zone.innerHTML = '<span class="maj ko">⚠ ' + esc((res && res.error) || 'erreur') + '</span>'; return; }
+    if (!res.fichiers.length) { zone.innerHTML = '<span class="maj">Aucune pièce dans ce dossier.</span>'; return; }
+    zone.innerHTML = '<div class="pieces-titre">' + res.fichiers.length + ' pièce' +
+      (res.fichiers.length > 1 ? 's' : '') + ' jointe' + (res.fichiers.length > 1 ? 's' : '') + '</div>' +
+      res.fichiers.map(function (f) {
+        return '<button class="piece-lig" onclick="telechargerPiece(\'' + f.id + '\', this)">' +
+          '<span>' + (f.type.indexOf('pdf') > -1 ? '📄' : '🖼') + '</span>' +
+          '<span class="piece-nom">' + esc(f.nom) + '</span>' +
+          '<span class="piece-taille">' + f.taille + ' Ko</span><span class="piece-dl">↓</span></button>';
+      }).join('');
+  });
+}
+
+function telechargerPiece(id, btn) {
+  var avant = btn.querySelector('.piece-dl').textContent;
+  btn.querySelector('.piece-dl').textContent = '…';
+  api({ action: 'adminFichier', email: SESSION.email, token: SESSION.token, id: id }, function (res) {
+    btn.querySelector('.piece-dl').textContent = avant;
+    if (!res || !res.ok) { alert((res && res.error) || 'Téléchargement impossible.'); return; }
+    var bin = atob(res.donnees), buf = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    var url = URL.createObjectURL(new Blob([buf], { type: res.type }));
+    var a = document.createElement('a');
+    a.href = url; a.download = res.nom;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  });
 }
 
 function allerAuDossier(denomination) {

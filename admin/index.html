@@ -50,8 +50,22 @@
   .leg:hover { background:#f7f9fc; }
   .leg.actif { background:var(--blue-light); font-weight:600; }
   .leg i { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
-  .leg b { margin-left:auto; font-weight:600; color:var(--blue-dark); }
-  .leg span { color:var(--muted); font-size:11px; width:34px; text-align:right; }
+  .leg b { margin-left:auto; font-weight:600; color:var(--blue-dark); padding-left:8px; }
+  .leg-nom { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
+  .leg-pct { color:var(--muted); font-size:11px; width:34px; text-align:right; flex-shrink:0; }
+  .leg[disabled] .leg-nom { cursor:help; }
+
+  .lien-pieces { background:none; border:none; color:var(--blue); font:inherit; font-size:inherit;
+                 cursor:pointer; text-decoration:underline; padding:0; }
+  .pieces { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); }
+  .pieces-titre { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin-bottom:6px; }
+  .piece-lig { display:flex; align-items:center; gap:9px; width:100%; background:#f7f9fc; border:1px solid var(--border);
+               border-radius:4px; padding:7px 11px; margin-bottom:5px; font-family:inherit; font-size:12.5px;
+               cursor:pointer; text-align:left; transition:border-color .15s ease; }
+  .piece-lig:hover { border-color:var(--blue); background:var(--blue-light); }
+  .piece-nom { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .piece-taille { color:var(--muted); font-size:11px; white-space:nowrap; }
+  .piece-dl { color:var(--blue); font-weight:700; }
 
   #app { display:none; flex-direction:column; min-height:100vh; }
   .top { background:var(--blue-nav); color:white; padding:12px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
