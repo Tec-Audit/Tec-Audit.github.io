@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Constitution de Société — TEC AUDIT</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Spectral:wght@400;500;600&display=swap');
 
   :root {
     --blue: #0E4194;
@@ -322,6 +322,17 @@
     .section { display:block !important; page-break-after:always; }
     .section:last-child { page-break-after:auto; }
   }
+
+  /* Titrage : Spectral — dessiné à Paris par Production Type.
+     L'interface, les formulaires et les données restent en Poppins. */
+  h1, h2, h3, .login-title, .titre-sec, .sec-info h2, .header-center h1,
+  .card h3, .hero h2, .entree-tete strong, .contact-nom, .expire-boite h2 {
+    font-family: 'Spectral', Georgia, serif;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+  }
+  .hero h2 { font-weight: 500; letter-spacing: -0.015em; }
+  .header-center h1, .login-title { font-weight: 600; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
@@ -726,7 +737,7 @@
         </div>
       </div>
       <div id="confirm-msg" style="display:none;margin-top:20px;background:#e8f5e9;border-left:3px solid #4caf50;padding:14px 18px;border-radius:0 4px 4px 0;font-size:14px;color:#2e7d32;">
-        <strong>✓ Formulaire validé !</strong> Votre dossier a bien été transmis à TEC AUDIT. Nous vous contacterons dans les plus brefs délais.
+        <strong>✓ Formulaire validé !</strong> Votre dossier a bien été transmis à TEC AUDIT. Nous vous contacterons dans les plus brefs délais.<div style="margin-top:14px;font-size:13px;"><a href="/mes-coordonnees/" style="color:#2e7d32;font-weight:600;">Suivre ma d&eacute;marche dans mon espace</a> &nbsp;·&nbsp; <a href="/" style="color:#2e7d32;">Retour au portail</a></div>
       </div>
     </div>
 

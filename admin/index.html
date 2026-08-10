@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Espace interne — TEC AUDIT</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Spectral:wght@400;500;600&display=swap');
   :root { --blue:#0E4194; --blue-dark:#0B316F; --blue-nav:#16213E; --blue-light:#E8EEF9;
           --border:#d9dee8; --text:#1c1c1c; --muted:#5a6070; }
   * { box-sizing:border-box; margin:0; padding:0; }
@@ -77,6 +77,7 @@
   .top-user b { color:white; }
   .badge-role { background:var(--blue); padding:3px 9px; border-radius:11px; font-size:10.5px; text-transform:uppercase; letter-spacing:.8px; }
   .lien { color:#9fb1d4; cursor:pointer; text-decoration:underline; font-size:12px; }
+  a.lien:hover { color:white; }
 
   .bar { background:white; border-bottom:1px solid var(--border); padding:14px 24px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
   .bar input[type=search] { flex:1; min-width:230px; padding:9px 13px; border:1.5px solid var(--border); border-radius:5px; font-family:inherit; font-size:13.5px; outline:none; }
@@ -221,6 +222,17 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation:none !important; transition:none !important; }
   }
+
+  /* Titrage : Spectral — dessiné à Paris par Production Type.
+     L'interface, les formulaires et les données restent en Poppins. */
+  h1, h2, h3, .login-title, .titre-sec, .sec-info h2, .header-center h1,
+  .card h3, .hero h2, .entree-tete strong, .contact-nom, .expire-boite h2 {
+    font-family: 'Spectral', Georgia, serif;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+  }
+  .hero h2 { font-weight: 500; letter-spacing: -0.015em; }
+  .header-center h1, .login-title { font-weight: 600; }
 </style>
 </head>
 <body>
@@ -279,6 +291,7 @@
     </div>
     <div class="top-user">
       <span><b id="user-nom"></b> <span class="badge-role" id="user-role"></span></span>
+      <a class="lien" href="/" target="_blank" rel="noopener">Portail public &#8599;</a>
       <span class="lien" onclick="deconnexion()">D&eacute;connexion</span>
     </div>
   </header>

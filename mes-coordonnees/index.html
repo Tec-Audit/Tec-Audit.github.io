@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mon espace client — TEC AUDIT</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Spectral:wght@400;500;600&display=swap');
   :root { --blue:#0E4194; --blue-dark:#0B316F; --blue-nav:#16213E; --blue-light:#E8EEF9;
           --cream:#fdfcf9; --border:#d4d8e0; --text:#1c1c1c; --muted:#5a6070; }
   * { box-sizing:border-box; margin:0; padding:0; }
@@ -70,6 +70,17 @@
     .section { display:block !important; page-break-after:always; }
     .section:last-child { page-break-after:auto; }
   }
+
+  /* Titrage : Spectral — dessiné à Paris par Production Type.
+     L'interface, les formulaires et les données restent en Poppins. */
+  h1, h2, h3, .login-title, .titre-sec, .sec-info h2, .header-center h1,
+  .card h3, .hero h2, .entree-tete strong, .contact-nom, .expire-boite h2 {
+    font-family: 'Spectral', Georgia, serif;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+  }
+  .hero h2 { font-weight: 500; letter-spacing: -0.015em; }
+  .header-center h1, .login-title { font-weight: 600; }
 </style>
 </head>
 <body>
@@ -124,6 +135,9 @@
     <section id="sec-demarches" style="display:none;margin-bottom:26px;">
       <h2 class="titre-sec">Mes démarches</h2>
       <p class="intro">Ce que vous nous avez transmis, et où cela en est.</p>
+      <p class="intro" style="margin-top:-4px;">Une nouvelle société à déclarer&nbsp;?
+        <a href="/constitution/" style="color:var(--blue);font-weight:600;">Constitution de société</a> ·
+        <a href="/nouveau-client/" style="color:var(--blue);font-weight:600;">Reprise de dossier</a></p>
       <div id="demarches"></div>
     </section>
 
