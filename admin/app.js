@@ -41,7 +41,7 @@ function login() {
       $('app').style.display = 'flex';
       $('user-nom').textContent = res.nom;
       $('user-role').textContent = res.role === 'associe' ? 'Associé' : 'Collaborateur';
-      if (res.role === 'associe') $('tab-lettres').style.display = '';
+      if (res.role === 'associe') $('tab-entrees').style.display = '';
       chargerDossiers();
     } else {
       btn.disabled = false;
@@ -190,7 +190,7 @@ function lignesFiltrees() {
 
 // ── Rendu ────────────────────────────────────────────────────
 function rendre() {
-  if (VUE === 'lettres') return;
+  if (VUE === 'entrees') return;
   var L = lignesFiltrees();
   var contacts = {};
   L.forEach(function (l) { contacts[val(l, 'Email') || '(sans email)'] = 1; });
@@ -534,10 +534,10 @@ function ouvrirLigne(id) {
 
 function changerVue(v) {
   VUE = v;
-  var horsDossiers = (v === 'lettres');
+  var horsDossiers = (v === 'entrees');
   document.querySelector('.apercu').style.display = horsDossiers ? 'none' : '';
   document.querySelector('.bar').style.display = horsDossiers ? 'none' : '';
-  if (v === 'lettres') { chargerLettres(); }
+  if (v === 'entrees') { chargerEntrees(); }
   document.querySelectorAll('.tab').forEach(function (t) {
     var actif = t.dataset.vue === v;
     t.classList.toggle('active', actif);
@@ -546,64 +546,208 @@ function changerVue(v) {
   rendre();
 }
 
-// ── Lettres confraternelles (associés) ───────────────────────
-var LETTRES = { colonnes: [], lignes: [], signataires: [] };
+// ── Pipeline « Nouveaux dossiers » (associés) ────────────────
+var ENTREES = { entrees: [], signataires: [] };
 
-function chargerLettres() {
+function chargerEntrees() {
   document.querySelectorAll('.tab').forEach(function (t) {
-    var actif = t.dataset.vue === 'lettres';
+    var actif = t.dataset.vue === 'entrees';
     t.classList.toggle('active', actif);
     t.setAttribute('aria-selected', actif ? 'true' : 'false');
   });
   $('liste').innerHTML = '<p class="vide">Chargement…</p>';
-  api({ action: 'adminLettres', email: SESSION.email, token: SESSION.token }, function (res) {
+  api({ action: 'adminEntrees', email: SESSION.email, token: SESSION.token }, function (res) {
     if (!res || !res.ok) { $('liste').innerHTML = '<div class="alerte">' + esc((res && res.error) || 'Erreur') + '</div>'; return; }
-    LETTRES = res;
-    rendreLettres();
+    ENTREES = res;
+    rendreEntrees();
   });
 }
 
-function lv(l, col) { return l[LETTRES.colonnes.indexOf(col)] || ''; }
+// Chaîne d'étapes d'une entrée, selon son parcours
+function etapes(e) {
+  var st = e.lettre ? e.lettre.statut : '';
+  var lettreFaite = st && st.indexOf('À émettre') !== 0;
+  var repriseOk = st && (st.indexOf('Reprise effective') === 0 || st.indexOf('Réponse reçue — sans objection') === 0);
+  var objection = st && st.indexOf('OBJECTION') > -1;
 
-function rendreLettres() {
-  var L = LETTRES.lignes.slice().reverse();
+  var l = [{ nom: 'Reçu', fait: true }];
+  if (e.confrere) {
+    l.push({ nom: 'Lettre confraternelle', fait: !!lettreFaite, action: lettreFaite ? null : 'lettre' });
+    l.push({ nom: 'Délai 15 jours', fait: !!repriseOk, attente: lettreFaite && !repriseOk && !objection,
+             alerte: objection, echeance: e.lettre ? e.lettre.echeance : '' });
+  }
+  var prealableOk = !e.confrere || repriseOk;
+  l.push({ nom: 'Dossier créé', fait: !!e.codeDossier, action: (!e.codeDossier && prealableOk) ? 'dossier' : null });
+  l.push({ nom: 'Lettre de mission', fait: !!e.ldm, action: (e.codeDossier && !e.ldm) ? 'ldm' : null });
+  l.push({ nom: 'Signature', fait: false, futur: true });
+  return l;
+}
+
+function etapeCourante(e) {
+  var l = etapes(e);
+  for (var i = 0; i < l.length; i++) if (l[i].action) return l[i];
+  for (var j = 0; j < l.length; j++) if (l[j].attente || l[j].alerte) return l[j];
+  return null;
+}
+
+function joursRestants(dateFr) {
+  var m = String(dateFr || '').match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!m) return null;
+  var d = new Date(+m[3], +m[2] - 1, +m[1], 23, 59);
+  return Math.ceil((d - new Date()) / 86400000);
+}
+
+function rendreEntrees() {
+  var L = ENTREES.entrees || [];
   if (!L.length) {
-    $('liste').innerHTML = '<p class="vide">Aucune lettre confraternelle en attente — la file se remplit automatiquement quand un nouveau client déclare un expert-comptable actuel.</p>';
+    $('liste').innerHTML = '<p class="vide">Aucune entrée pour le moment — cette vue se remplit automatiquement à chaque dossier reçu par le portail.</p>';
     return;
   }
-  $('liste').innerHTML = L.map(function (l) {
-    var ligne = l[l.length - 1];
-    var statut = lv(l, 'Statut');
-    var aEmettre = statut === 'À émettre';
-    var envoyee = statut.indexOf('Envoyée') === 0;
-    var cls = aEmettre ? 'warn' : (statut.indexOf('OBJECTION') > -1 ? 'warn' : (envoyee ? 'envoyee' : 'ok'));
-    var hono = lv(l, 'Honoraires confrère');
-    var honoTxt = { oui: 'réglés', non: '⚠ pas encore réglés', litige: '⚠ EN LITIGE' }[hono] || hono || 'n.c.';
-    return '<div class="lettre">' +
-      '<div class="lettre-head"><div><strong>' + esc(lv(l, 'Dénomination')) + '</strong>' +
-      '<div class="lettre-meta">Demandé le ' + esc(lv(l, 'Date demande')) + ' · client : ' + esc(lv(l, 'Email client')) + '</div></div>' +
-      '<span class="tag ' + cls + '">' + esc(statut) + '</span></div>' +
-      '<div class="lettre-meta">' +
-      'Confrère : <b>' + esc(lv(l, 'Cabinet confrère') || '—') + '</b>' +
-      (lv(l, 'Confrère') ? ' (' + esc(lv(l, 'Confrère')) + ')' : '') +
-      ' · ' + esc(lv(l, 'Email confrère') || 'email manquant ⚠') +
-      '<br>Dernier exercice traité : ' + esc(lv(l, 'Dernier exercice') || 'n.c.') +
-      ' · Honoraires du confrère : ' + esc(honoTxt) +
-      (lv(l, 'Envoyée le') ? '<br>Envoyée le ' + esc(lv(l, 'Envoyée le')) + ' — échéance accord tacite : ' + esc(lv(l, 'Échéance accord tacite')) : '') +
-      '</div>' +
-      (aEmettre ?
-        '<div class="lettre-actions">Signataire : <select id="sig-' + ligne + '">' +
-        LETTRES.signataires.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('') +
-        '</select><button class="btn-rep" onclick="apercuLettre(' + ligne + ', this)">👁 Aperçu</button>' +
-        '<button class="btn-envoyer" onclick="envoyerLettre(' + ligne + ', this)">📨 Envoyer la lettre</button>' +
-        '<span class="maj" role="status" aria-live="polite"></span></div>' : '') +
-      (envoyee ?
-        '<div class="lettre-actions">Le confrère a répondu ? ' +
-        '<button class="btn-rep" onclick="reponseLettre(' + ligne + ', false, this)">✓ Sans objection</button>' +
-        '<button class="btn-rep" onclick="reponseLettre(' + ligne + ', true, this)">⚠ Objection</button>' +
-        '<span class="maj" role="status" aria-live="polite"></span></div>' : '') +
-      '</div>';
-  }).join('');
+  var aTraiter = [], enAttente = [], termines = [];
+  L.forEach(function (e) {
+    var c = etapeCourante(e);
+    if (c && (c.action || c.alerte)) aTraiter.push(e);
+    else if (c && c.attente) enAttente.push(e);
+    else termines.push(e);
+  });
+  // Les délais les plus proches en premier
+  enAttente.sort(function (a, b) {
+    var ja = joursRestants(a.lettre && a.lettre.echeance), jb = joursRestants(b.lettre && b.lettre.echeance);
+    return (ja === null ? 999 : ja) - (jb === null ? 999 : jb);
+  });
+
+  var html = groupe('🔴 À traiter', aTraiter, 'Ces dossiers attendent une action de votre part.');
+  html += groupe('🟠 Délai en cours', enAttente, 'Le confrère dispose de 15 jours pour s\'opposer ; la reprise sera actée automatiquement à l\'échéance.');
+  html += groupe('🟢 Terminés', termines, '', true);
+  $('liste').innerHTML = html;
+
+  var t = $('tab-entrees');
+  t.textContent = 'Nouveaux dossiers' + (aTraiter.length ? ' (' + aTraiter.length + ')' : '');
+}
+
+function groupe(titre, L, aide, replie) {
+  if (!L.length) return '';
+  return '<div class="grp' + (replie ? '' : ' ouvert') + '">' +
+    '<button class="grp-tete" onclick="this.parentNode.classList.toggle(\'ouvert\')">' +
+    '<span>' + titre + ' <b>' + L.length + '</b></span><span class="chevron">▼</span></button>' +
+    (aide ? '<p class="grp-aide">' + aide + '</p>' : '') +
+    '<div class="grp-corps">' + L.map(carteEntree).join('') + '</div></div>';
+}
+
+function carteEntree(e) {
+  var l = etapes(e);
+  var stepper = '<div class="stepper">' + l.map(function (s, i) {
+    var cls = s.fait ? 'ok' : (s.alerte ? 'ko' : (s.action ? 'now' : (s.attente ? 'wait' : 'todo')));
+    return '<span class="step ' + cls + '">' + (i ? '<i></i>' : '') +
+      '<b>' + (s.fait ? '✓' : (s.alerte ? '!' : i + 1)) + '</b>' + esc(s.nom) + '</span>';
+  }).join('') + '</div>';
+
+  var meta = 'Reçu le ' + esc(e.date) + ' · ' + esc(e.contact || e.email) +
+    ' · ' + (e.parcours === 'nouveau-client' ? 'Nouveau client / reprise' : 'Constitution') +
+    (e.codeDossier ? ' · dossier <b>' + esc(e.codeDossier) + '</b>' : '') +
+    (e.drive ? ' · <a href="' + esc(e.drive) + '" target="_blank" rel="noopener">pièces</a>' : '');
+
+  return '<div class="entree">' +
+    '<div class="entree-tete"><div><strong>' + esc(e.denomination || '(sans dénomination)') + '</strong>' +
+    (e.forme ? ' <span class="tag neutre">' + esc(e.forme) + '</span>' : '') +
+    (e.acre && e.acre.indexOf('Oui') === 0 ? ' <span class="tag warn">ACRE</span>' : '') +
+    '<div class="lettre-meta">' + meta + '</div></div></div>' +
+    stepper + actionEntree(e) + '</div>';
+}
+
+function actionEntree(e) {
+  var c = etapeCourante(e);
+  if (!c) return '<div class="entree-act"><span class="maj ok">✓ Parcours terminé — en attente de signature client.</span></div>';
+  var ligne = e.ligne;
+
+  if (c.action === 'lettre') {
+    var lg = e.lettre.ligne;
+    return '<div class="entree-act"><b>Étape : émettre la lettre confraternelle</b>' +
+      '<div class="lettre-meta">Confrère : ' + esc(e.lettre.cabinet || '—') +
+      (e.lettre.confrere ? ' (' + esc(e.lettre.confrere) + ')' : '') + ' · ' + esc(e.lettre.emailConfrere || 'email manquant ⚠') +
+      (e.lettre.honoraires === 'litige' ? ' · <b style="color:#b45309;">honoraires en litige ⚠</b>' :
+       (e.lettre.honoraires === 'non' ? ' · honoraires du confrère non réglés ⚠' : '')) + '</div>' +
+      '<div class="lettre-actions">Signataire : <select id="sig-' + lg + '">' +
+      ENTREES.signataires.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('') +
+      '</select><button class="btn-rep" onclick="apercuLettre(' + lg + ', this)">👁 Aperçu</button>' +
+      '<button class="btn-envoyer" onclick="envoyerLettre(' + lg + ', this)">📨 Envoyer la lettre</button>' +
+      '<span class="maj" role="status" aria-live="polite"></span></div></div>';
+  }
+
+  if (c.alerte) {
+    return '<div class="entree-act"><b style="color:#c0392b;">Le confrère a émis une objection</b>' +
+      '<div class="lettre-meta">À traiter avec le client avant d\'aller plus loin (honoraires impayés, litige…).</div></div>';
+  }
+
+  if (c.attente) {
+    var j = joursRestants(c.echeance);
+    var txt = j === null ? '' : (j > 1 ? 'encore ' + j + ' jours' : (j === 1 ? 'échéance demain' : (j === 0 ? 'échéance aujourd\'hui' : 'échéance dépassée, bascule imminente')));
+    var lg2 = e.lettre.ligne;
+    return '<div class="entree-act"><b>Délai confraternel en cours</b> ' +
+      '<span class="pastille' + (j !== null && j <= 3 ? ' urgent' : '') + '">' + esc(txt) + '</span>' +
+      '<div class="lettre-meta">Envoyée le ' + esc(e.lettre.envoyee) + ' — sans opposition au ' + esc(e.lettre.echeance) +
+      ', la reprise sera actée automatiquement.</div>' +
+      '<div class="lettre-actions">Le confrère a répondu ? ' +
+      '<button class="btn-rep" onclick="reponseLettre(' + lg2 + ', false, this)">✓ Sans objection</button>' +
+      '<button class="btn-rep" onclick="reponseLettre(' + lg2 + ', true, this)">⚠ Objection</button>' +
+      '<span class="maj" role="status" aria-live="polite"></span></div></div>';
+  }
+
+  if (c.action === 'dossier') {
+    var collabs = {};
+    DATA.lignes.forEach(function (x) { var v = val(x, 'Collaborateur'); if (v) collabs[v] = 1; });
+    return '<div class="entree-act"><b>Étape : créer le dossier dans la base</b>' +
+      '<div class="lettre-meta">Le client entrera dans la base des dossiers ; la lettre de mission deviendra possible.</div>' +
+      '<div class="lettre-actions">' +
+      '<label>Code <input type="text" id="cd-' + ligne + '" placeholder="auto" style="width:82px;"></label>' +
+      '<label>Associé <select id="ca-' + ligne + '">' +
+        ENTREES.signataires.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('') +
+      '</select></label>' +
+      '<label>Collaborateur <select id="cc-' + ligne + '"><option value="">— à affecter —</option>' +
+        Object.keys(collabs).sort().map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('') +
+      '</select></label>' +
+      '<label>Honoraires € HT <input type="number" id="ch-' + ligne + '" style="width:96px;"></label>' +
+      '<button class="btn-envoyer" onclick="creerDossier(' + ligne + ', this)">➕ Créer le dossier</button>' +
+      '<span class="maj" role="status" aria-live="polite"></span></div></div>';
+  }
+
+  if (c.action === 'ldm') {
+    return '<div class="entree-act"><b>Étape : lettre de mission</b>' +
+      '<div class="lettre-meta">Le dossier <b>' + esc(e.codeDossier) + '</b> est dans la base. ' +
+      'Générez la lettre depuis l\'onglet <b>Dossiers</b> (recherchez « ' + esc(e.denomination) + ' »), ' +
+      'puis déposez le PDF dans Yousign pour signature.</div>' +
+      '<div class="lettre-actions"><button class="btn-rep" onclick="allerAuDossier(\'' +
+      esc(e.denomination).replace(/'/g, "\\'") + '\')">→ Ouvrir le dossier</button></div></div>';
+  }
+  return '';
+}
+
+function allerAuDossier(denomination) {
+  changerVue('dossiers');
+  $('q').value = denomination;
+  rendre();
+  var t = document.querySelector('tr.ligne');
+  if (t) t.click();
+}
+
+function creerDossier(ligne, btn) {
+  var msg = btn.parentNode.querySelector('.maj');
+  btn.disabled = true; btn.textContent = 'Création…';
+  api({ action: 'adminCreerDossier', email: SESSION.email, token: SESSION.token, ligne: ligne,
+        code: $('cd-' + ligne).value, associe: $('ca-' + ligne).value,
+        collaborateur: $('cc-' + ligne).value, honoraires: $('ch-' + ligne).value },
+    function (res) {
+      btn.disabled = false; btn.textContent = '➕ Créer le dossier';
+      if (res && res.ok) {
+        msg.textContent = '✓ Dossier ' + res.code + ' créé.';
+        msg.className = 'maj ok';
+        chargerDossiers();
+        setTimeout(chargerEntrees, 400);
+      } else {
+        msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
+        msg.className = 'maj ko';
+      }
+    });
 }
 
 function apercuLettre(ligne, btn) {
@@ -630,31 +774,24 @@ function envoyerLettre(ligne, btn) {
     return;
   }
   btn.disabled = true; btn.textContent = 'Envoi…';
-  msg.textContent = '⏳ Envoi en cours (génération du PDF, cela peut prendre quelques secondes)…';
-  msg.className = 'maj';
-
+  msg.textContent = '⏳ Envoi en cours (génération du PDF)…'; msg.className = 'maj';
   var repondu = false;
-  // Filet de sécurité : si le serveur ne répond pas, on le dit au lieu de rester figé
   var minuteur = setTimeout(function () {
     if (repondu) return;
     btn.disabled = false; btn.textContent = '📨 Envoyer la lettre';
     msg.textContent = '⚠ Aucune réponse du serveur après 60 s. Rechargez la page et vérifiez le statut avant de réessayer.';
     msg.className = 'maj ko';
   }, 60000);
-
   api({ action: 'adminEnvoyerLettre', email: SESSION.email, token: SESSION.token, ligne: ligne, signataire: sig },
     function (res) {
       repondu = true; clearTimeout(minuteur);
       if (res && res.ok) {
-        msg.textContent = '✓ Lettre envoyée et archivée dans Drive.';
-        msg.className = 'maj ok';
-        alert('✓ Lettre envoyée au confrère, signée ' + sig + '.\nLe PDF est archivé dans le dossier Drive du client.');
-        chargerLettres();
+        alert('✓ Lettre envoyée au confrère, signée ' + sig + '.');
+        chargerEntrees();
       } else {
         btn.disabled = false; btn.textContent = '📨 Envoyer la lettre';
         var txt = (res && res.error) || 'erreur inconnue';
-        msg.textContent = '⚠ ' + txt;
-        msg.className = 'maj ko';
+        msg.textContent = '⚠ ' + txt; msg.className = 'maj ko';
         alert('⚠ Envoi impossible\n\n' + txt);
       }
     });
@@ -664,7 +801,7 @@ function reponseLettre(ligne, objection, btn) {
   btn.disabled = true;
   api({ action: 'adminLettreReponse', email: SESSION.email, token: SESSION.token, ligne: ligne, objection: objection },
     function (res) {
-      if (res && res.ok) { chargerLettres(); }
+      if (res && res.ok) { chargerEntrees(); }
       else { btn.disabled = false; alert((res && res.error) || 'Échec'); }
     });
 }
