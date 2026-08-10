@@ -377,9 +377,51 @@ function ficheDossier(l) {
       return '<div><span>' + esc(c[0]) + '</span>' + esc(c[1]) + '</div>';
     }).join('') + '</div>' +
     (comm ? '<div class="comm">💬 ' + esc(comm) + '</div>' : '') +
+    blocContact(l, lignesSheet) +
     (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
   '</div>';
+}
+
+// ── Coordonnées du client (modifiables par l'associé et par le
+//    collaborateur en charge du dossier) ──────────────────────
+var CHAMPS_CONTACT = ['Civilité', 'Nom', 'Prénom', 'Qualité', 'Email', 'Mobile', 'Tél fixe', 'Adresse', 'CP', 'Ville'];
+
+function blocContact(l, ligne) {
+  return '<details class="coord"><summary>✎ Modifier les coordonnées</summary><div class="coord-grille">' +
+    CHAMPS_CONTACT.map(function (c) {
+      var id = 'ct-' + ligne + '-' + c.replace(/[^a-zA-Z]/g, '');
+      var v = esc(val(l, c));
+      var champ = (c === 'Civilité')
+        ? '<select id="' + id + '">' + ['', 'Monsieur', 'Madame'].map(function (o) {
+            return '<option' + (o === val(l, c) ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>'
+        : '<input type="text" id="' + id + '" value="' + v + '">';
+      return '<label>' + esc(c) + champ + '</label>';
+    }).join('') +
+    '</div><div class="lettre-actions"><button class="btn-envoyer" onclick="enregistrerContact(' + ligne + ', this)">Enregistrer</button>' +
+    '<span class="maj" role="status" aria-live="polite"></span></div></details>';
+}
+
+function enregistrerContact(ligne, btn) {
+  var msg = btn.parentNode.querySelector('.maj');
+  var contact = {};
+  CHAMPS_CONTACT.forEach(function (c) {
+    var el = $('ct-' + ligne + '-' + c.replace(/[^a-zA-Z]/g, ''));
+    if (el) contact[c] = el.value;
+  });
+  btn.disabled = true; btn.textContent = 'Enregistrement…';
+  api({ action: 'adminMajContact', email: SESSION.email, token: SESSION.token, ligne: ligne, contact: contact },
+    function (res) {
+      btn.disabled = false; btn.textContent = 'Enregistrer';
+      if (res && res.ok) {
+        msg.textContent = res.modifie ? '✓ ' + res.modifie + ' champ(s) mis à jour.' : 'Aucune modification.';
+        msg.className = 'maj ok';
+        if (res.modifie) chargerDossiers();
+      } else {
+        msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
+        msg.className = 'maj ko';
+      }
+    });
 }
 
 // ── Lettre de mission ────────────────────────────────────────
