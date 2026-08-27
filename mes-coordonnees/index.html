@@ -295,22 +295,27 @@ function charger(){
   });
 }
 
-// Compléter une démarche déjà transmise : un justificatif oublié, une pièce
-// demandée par le cabinet… sans avoir à refaire le formulaire.
-function ajouterPieces(ligne, input) {
-  var carte = input.closest('.dem');
-  var msg = carte.querySelector('.dem-msg');
-  var fichiers = Array.from(input.files || []);
-  if (!fichiers.length) return;
-  var trop = fichiers.filter(function(f){ return f.size > 12 * 1024 * 1024; });
-  if (trop.length) {
-    msg.textContent = '⚠ ' + trop[0].name + ' dépasse 12 Mo. Compressez-le ou envoyez-le par email.';
-    msg.style.color = '#c0392b'; input.value = ''; return;
-  }
-  msg.textContent = '⏳ Envoi de ' + fichiers.length + ' document(s)…';
-  msg.style.color = '#5a6070';
+// Le transport base64 gonfle les fichiers d'un tiers : au-delà d'une
+// vingtaine de Mo au total, l'envoi échoue sans message exploitable.
+// Autant le dire avant, avec la marche à suivre.
+var MAX_PIECE = 12 * 1024 * 1024, MAX_LOT = 20 * 1024 * 1024;
 
-  Promise.all(fichiers.map(function(f){
+function refusEnvoi(fichiers) {
+  var trop = fichiers.filter(function(f){ return f.size > MAX_PIECE; });
+  if (trop.length) {
+    return trop[0].name + ' dépasse 12 Mo. Compressez-le, ou envoyez-le par email au cabinet.';
+  }
+  var total = fichiers.reduce(function(n, f){ return n + f.size; }, 0);
+  if (total > MAX_LOT) {
+    return 'Ces ' + fichiers.length + ' documents pèsent ' + Math.round(total / 1048576) +
+           ' Mo au total, c\'est trop pour un seul envoi. Sélectionnez-en la moitié, ' +
+           'puis recommencez avec le reste.';
+  }
+  return '';
+}
+
+function lireFichiers(fichiers) {
+  return Promise.all(fichiers.map(function(f){
     return new Promise(function(res, rej){
       var r = new FileReader();
       r.onload = function(){ res({ nom:f.name, mimeType:f.type||'application/octet-stream',
@@ -318,7 +323,22 @@ function ajouterPieces(ligne, input) {
       r.onerror = function(){ rej(new Error(f.name)); };
       r.readAsDataURL(f);
     });
-  })).then(function(payload){
+  }));
+}
+
+// Compléter une démarche déjà transmise : un justificatif oublié, une pièce
+// demandée par le cabinet… sans avoir à refaire le formulaire.
+function ajouterPieces(ligne, input) {
+  var msg = input.closest('.dem').querySelector('.dem-msg');
+  var fichiers = Array.from(input.files || []);
+  if (!fichiers.length) return;
+  var refus = refusEnvoi(fichiers);
+  if (refus) { msg.textContent = '⚠ ' + refus; msg.style.color = '#c0392b'; input.value = ''; return; }
+
+  msg.textContent = '⏳ Envoi de ' + fichiers.length + ' document(s)…';
+  msg.style.color = '#5a6070';
+
+  lireFichiers(fichiers).then(function(payload){
     api({ action:'ajouterMesPieces', email:SESSION.email, token:SESSION.token,
           ligne:ligne, fichiers:payload }, function(res){
       input.value = '';
