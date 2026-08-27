@@ -538,6 +538,37 @@ function enregistrer(url, nom) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
+// Le transport base64 gonfle les fichiers d'un tiers : au-delà d'une
+// vingtaine de Mo au total, la requête échoue côté Apps Script avec un
+// message illisible. Mieux vaut le dire avant d'envoyer.
+var MAX_PIECE = 12 * 1024 * 1024, MAX_LOT = 20 * 1024 * 1024;
+
+function refusEnvoi(fichiers) {
+  var trop = fichiers.filter(function (f) { return f.size > MAX_PIECE; });
+  if (trop.length) return trop[0].name + ' dépasse 12 Mo.';
+  var total = fichiers.reduce(function (n, f) { return n + f.size; }, 0);
+  if (total > MAX_LOT) {
+    return 'Ensemble trop volumineux (' + Math.round(total / 1048576) +
+           ' Mo). Envoyez-les en deux fois.';
+  }
+  return '';
+}
+
+// Lecture des fichiers en base64, prêts pour le transport JSON.
+function lireFichiers(fichiers, mimeDefaut) {
+  return Promise.all(fichiers.map(function (f) {
+    return new Promise(function (res, rej) {
+      var r = new FileReader();
+      r.onload = function () {
+        res({ nom: f.name, mimeType: f.type || mimeDefaut,
+              data: String(r.result).split(',')[1] });
+      };
+      r.onerror = function () { rej(new Error(f.name)); };
+      r.readAsDataURL(f);
+    });
+  }));
+}
+
 // ── Retour de la lettre de mission ───────────────────────────
 // Générer la LDM reste réservé aux associés (elle porte les honoraires) ;
 // enregistrer son retour est un geste administratif, ouvert au
@@ -557,7 +588,7 @@ function blocLdmRetour(l, ligne) {
   return '<div class="actions ldm-bloc">' +
     '<b style="color:var(--blue-dark);">Retour du client</b>' +
     '<label class="btn-envoyer" style="cursor:pointer;">✅ LDM signée reçue' +
-      '<input type="file" accept=".pdf,image/*" style="display:none;" ' +
+      '<input type="file" multiple accept=".pdf,image/*" style="display:none;" ' +
       'onchange="deposerLdmSignee(' + ligne + ', this)"></label>' +
     '<select onchange="changerStatutLdm(' + ligne + ', this)" aria-label="Statut de la lettre de mission">' +
       (connu || !courant ? '' : '<option selected disabled>' + esc(courant) + '</option>') +
@@ -571,34 +602,34 @@ function blocLdmRetour(l, ligne) {
 
 function deposerLdmSignee(ligne, input) {
   var msg = input.closest('.actions').querySelector('.maj');
-  var f = (input.files || [])[0];
-  if (!f) return;
-  if (f.size > 12 * 1024 * 1024) {
-    msg.textContent = '⚠ ' + f.name + ' dépasse 12 Mo.';
-    msg.className = 'maj ko'; input.value = ''; return;
-  }
-  msg.textContent = '⏳ Enregistrement…'; msg.className = 'maj';
+  var fichiers = Array.from(input.files || []);
+  if (!fichiers.length) return;
+  var refus = refusEnvoi(fichiers);
+  if (refus) { msg.textContent = '⚠ ' + refus; msg.className = 'maj ko'; input.value = ''; return; }
 
-  var r = new FileReader();
-  r.onerror = function () { msg.textContent = '⚠ Lecture impossible.'; msg.className = 'maj ko'; };
-  r.onload = function () {
-    api({ action: 'adminLdmSignee', email: SESSION.email, token: SESSION.token, ligne: ligne,
-          fichiers: [{ nom: f.name, mimeType: f.type || 'application/pdf',
-                       data: String(r.result).split(',')[1] }] }, function (res) {
+  msg.textContent = '⏳ Enregistrement de ' + fichiers.length + ' document(s)…';
+  msg.className = 'maj';
+
+  lireFichiers(fichiers, 'application/pdf').then(function (payload) {
+    api({ action: 'adminLdmSignee', email: SESSION.email, token: SESSION.token,
+          ligne: ligne, fichiers: payload }, function (res) {
       input.value = '';
       if (!res || !res.ok) {
         msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
         msg.className = 'maj ko'; return;
       }
-      msg.textContent = '✓ signée le ' + res.date;
+      msg.textContent = '✓ signée le ' + res.date +
+        (res.ajoutes > 1 ? ' — ' + res.ajoutes + ' documents' : '');
       msg.className = 'maj ok';
       var sel = msg.parentNode.querySelector('select');
       if (sel) sel.value = 'SIGNÉE';
       appliquerStatutLdm(ligne, 'SIGNÉE', msg, res.date);
-      chargerPieces(ligne, null, true);   // le PDF signé rejoint les pièces
+      chargerPieces(ligne, null, true);   // les PDF rejoignent les pièces
     });
-  };
-  r.readAsDataURL(f);
+  }).catch(function (e) {
+    msg.textContent = '⚠ Lecture impossible : ' + e.message;
+    msg.className = 'maj ko';
+  });
 }
 
 function changerStatutLdm(ligne, sel) {
@@ -638,23 +669,13 @@ function deposerPieces(ligne, input) {
   var msg = input.closest('.lettre-actions').querySelector('.maj');
   var fichiers = Array.from(input.files || []);
   if (!fichiers.length) return;
-  var trop = fichiers.filter(function (f) { return f.size > 12 * 1024 * 1024; });
-  if (trop.length) {
-    msg.textContent = '⚠ ' + trop[0].name + ' dépasse 12 Mo.';
-    msg.className = 'maj ko'; input.value = ''; return;
-  }
+  var refus = refusEnvoi(fichiers);
+  if (refus) { msg.textContent = '⚠ ' + refus; msg.className = 'maj ko'; input.value = ''; return; }
+
   msg.textContent = '⏳ Envoi de ' + fichiers.length + ' document(s)…';
   msg.className = 'maj';
 
-  Promise.all(fichiers.map(function (f) {
-    return new Promise(function (res, rej) {
-      var r = new FileReader();
-      r.onload = function () { res({ nom: f.name, mimeType: f.type || 'application/octet-stream',
-                                     data: String(r.result).split(',')[1] }); };
-      r.onerror = function () { rej(new Error(f.name)); };
-      r.readAsDataURL(f);
-    });
-  })).then(function (payload) {
+  lireFichiers(fichiers, 'application/octet-stream').then(function (payload) {
     api({ action: 'adminAjouterPieces', email: SESSION.email, token: SESSION.token,
           ligne: ligne, fichiers: payload }, function (res) {
       input.value = '';
