@@ -57,6 +57,25 @@
   .dem-etat.fait { background:#e8f5e9; color:#1b5e20; }
   .dem-pdf { background:none; border:1.5px solid var(--border); border-radius:5px; padding:7px 13px;
              font-family:inherit; font-size:12px; color:var(--blue-dark); cursor:pointer; }
+  .mes-pieces { flex-basis:100%; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); }
+  .mp-titre { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin-bottom:6px; }
+  .mp-lig { display:flex; align-items:center; gap:9px; background:#f7f9fc; border:1px solid var(--border);
+            border-radius:5px; padding:6px 8px 6px 11px; margin-bottom:5px; font-size:12.5px; }
+  .mp-nom { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mp-taille { color:var(--muted); font-size:11px; white-space:nowrap; }
+  .mp-act { background:white; border:1px solid var(--border); border-radius:4px; color:var(--blue-dark);
+            font:inherit; font-size:11.5px; font-weight:600; padding:4px 9px; cursor:pointer; white-space:nowrap; }
+  .mp-act:hover:not([disabled]) { background:var(--blue-light); border-color:var(--blue); }
+  .mp-act[disabled] { opacity:.4; cursor:default; }
+  .mp-vide { font-size:12px; color:var(--muted); }
+
+  #vue { display:none; position:fixed; inset:0; background:rgba(22,33,62,.55); z-index:70;
+         align-items:center; justify-content:center; padding:24px; }
+  .vue-boite { background:white; border-radius:8px; width:100%; max-width:900px; height:88vh; display:flex;
+               flex-direction:column; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+  .vue-tete { display:flex; justify-content:space-between; align-items:center; gap:14px; padding:14px 20px;
+              border-bottom:1px solid var(--border); }
+  #vue-corps { flex:1; border:none; width:100%; background:#f7f9fc; }
   .dem-pdf:hover { border-color:var(--blue); background:var(--blue-light); }
   .conf-footer { text-align:center; font-size:11px; color:var(--muted); padding:13px; background:var(--blue-light); font-style:italic; }
   @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation:none!important; transition:none!important; } }
@@ -155,6 +174,20 @@
   <div class="conf-footer">Données confidentielles — TEC AUDIT, 44 Rue du Louvre, 75001 Paris</div>
 </div>
 
+<div id="vue" role="dialog" aria-modal="true" aria-labelledby="vue-titre">
+  <div class="vue-boite">
+    <div class="vue-tete">
+      <div style="min-width:0;"><strong id="vue-titre" style="color:var(--blue-dark);"></strong>
+        <div style="font-size:12px;color:var(--muted);" id="vue-sous"></div></div>
+      <div style="display:flex;gap:9px;flex-shrink:0;">
+        <button class="dem-pdf" onclick="telechargerDepuisVue()">&#8595; Télécharger</button>
+        <button class="dem-pdf" id="vue-fermer" onclick="fermerVue()">&#10005; Fermer</button>
+      </div>
+    </div>
+    <iframe id="vue-corps" title="Aperçu du document"></iframe>
+  </div>
+</div>
+
 <script>
 function sessionExpiree() {
   var el = document.getElementById('expire');
@@ -251,11 +284,13 @@ function charger(){
           (d.nbPieces ? ' · ' + esc(d.nbPieces) + ' pièce(s)' : '') + '</div></div>' +
         '<div style="display:flex;align-items:center;gap:10px;">' +
         (d.pdfId ? '<button class="dem-pdf" onclick="telechargerRecap(\'' + d.pdfId + '\', this)">↓ Récapitulatif</button>' : '') +
+        '<button class="dem-pdf" onclick="voirMesPieces(' + d.ligne + ', this)">📎 Mes documents</button>' +
         '<label class="dem-pdf" style="cursor:pointer;">➕ Ajouter des documents' +
           '<input type="file" multiple accept="image/*,.pdf" style="display:none;" ' +
           'onchange="ajouterPieces(' + d.ligne + ', this)"></label>' +
         '<span class="dem-etat' + (fait ? ' fait' : '') + '">' + esc(d.etat) + '</span></div>' +
-        '<div class="dem-msg" style="flex-basis:100%;font-size:12px;margin-top:8px;"></div></div>';
+        '<div class="dem-msg" style="flex-basis:100%;font-size:12px;margin-top:8px;"></div>' +
+        '<div class="mes-pieces" id="mp-' + d.ligne + '" hidden></div></div>';
     }).join('');
   });
 }
@@ -290,6 +325,7 @@ function ajouterPieces(ligne, input) {
       if (res && res.ok) {
         msg.textContent = '✓ ' + res.ajoutes + ' document(s) transmis. Votre expert-comptable en est informé.';
         msg.style.color = '#2e7d32';
+        chargerMesPieces(ligne);
       } else {
         msg.textContent = '⚠ ' + ((res && res.error) || 'Envoi impossible.');
         msg.style.color = '#c0392b';
@@ -300,6 +336,136 @@ function ajouterPieces(ligne, input) {
     msg.style.color = '#c0392b';
   });
 }
+
+// ── Les pièces déjà transmises ────────────────────────────────
+// Le client retrouve ce qu'il a envoyé, le consulte et le récupère sans
+// jamais atterrir sur Drive : le portail sert la liste puis les fichiers.
+function voirMesPieces(ligne, btn) {
+  var zone = $('mp-' + ligne);
+  if (!zone) return;
+  if (!zone.hidden) { zone.hidden = true; btn.textContent = '📎 Mes documents'; return; }
+  zone.hidden = false;
+  btn.textContent = '📎 Masquer les documents';
+  if (zone.dataset.charge !== '1') chargerMesPieces(ligne);
+}
+
+function chargerMesPieces(ligne) {
+  var zone = $('mp-' + ligne);
+  if (!zone) return;
+  zone.hidden = false;
+  zone.dataset.charge = '1';
+  zone.innerHTML = '<span class="mp-vide">Chargement de vos documents…</span>';
+  api({ action:'mesPieces', email:SESSION.email, token:SESSION.token, ligne:ligne }, function(res){
+    if (!res || !res.ok) {
+      zone.dataset.charge = '0';
+      zone.innerHTML = '<span class="mp-vide">⚠ ' + esc((res && res.error) || 'Documents indisponibles.') + '</span>';
+      return;
+    }
+    zone.innerHTML = listeMesPiecesHtml(res.fichiers);
+  });
+}
+
+function listeMesPiecesHtml(fichiers) {
+  if (!fichiers || !fichiers.length) {
+    return '<span class="mp-vide">Aucun document dans ce dossier pour le moment.</span>';
+  }
+  var n = fichiers.length;
+  return '<div class="mp-titre">' + n + ' document' + (n > 1 ? 's' : '') + '</div>' +
+    fichiers.map(function(f){
+      var voir = apercuPossible(f.type);
+      return '<div class="mp-lig">' +
+        '<span>' + iconePiece(f.type) + '</span>' +
+        '<span class="mp-nom" title="' + esc(f.nom) + '">' + esc(f.nom) + '</span>' +
+        '<span class="mp-taille">' + tailleLisible(f.taille) + '</span>' +
+        '<button class="mp-act" onclick="apercuMaPiece(\'' + f.id + '\', this)"' +
+          (voir ? '' : ' disabled title="Aperçu indisponible pour ce format"') + '>👁 Aperçu</button>' +
+        '<button class="mp-act" onclick="telechargerMaPiece(\'' + f.id + '\', this)">↓ Télécharger</button>' +
+      '</div>';
+    }).join('');
+}
+
+function apercuPossible(type) {
+  type = String(type || '');
+  return /^image\//.test(type) || type.indexOf('pdf') > -1 || /^text\//.test(type);
+}
+
+function iconePiece(type) {
+  type = String(type || '');
+  if (type.indexOf('pdf') > -1) return '📄';
+  if (/^image\//.test(type)) return '🖼';
+  return '📎';
+}
+
+function tailleLisible(ko) {
+  return ko >= 1024 ? (ko / 1024).toFixed(1).replace('.', ',') + ' Mo' : ko + ' Ko';
+}
+
+// Les huit derniers documents consultés restent en mémoire : consulter
+// puis télécharger le même fichier ne refait pas d'aller-retour.
+var MES_PIECES = {}, MES_PIECES_ORDRE = [], VUE_COURANTE = null;
+
+// La démarche d'où provient la pièce, lue sur le conteneur de la liste ;
+// 0 pour le récapitulatif, dont le bouton est hors liste.
+function ligneDeLaPiece(btn) {
+  var zone = btn && btn.closest ? btn.closest('.mes-pieces') : null;
+  return zone ? parseInt(zone.id.replace('mp-', ''), 10) : 0;
+}
+
+function chargerMonFichier(id, btn, suite) {
+  if (MES_PIECES[id]) { suite(MES_PIECES[id]); return; }
+  var avant = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  api({ action:'monFichier', email:SESSION.email, token:SESSION.token,
+        id:id, ligne:ligneDeLaPiece(btn) }, function(res){
+    if (btn) { btn.disabled = false; btn.textContent = avant; }
+    if (!res || !res.ok) { alert((res && res.error) || 'Document indisponible.'); return; }
+    var bin = atob(res.donnees), buf = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    var o = { nom:res.nom, type:res.type,
+              url:URL.createObjectURL(new Blob([buf], { type:res.type })) };
+    MES_PIECES[id] = o; MES_PIECES_ORDRE.push(id);
+    while (MES_PIECES_ORDRE.length > 8) {
+      var vieux = MES_PIECES_ORDRE.shift();
+      if (MES_PIECES[vieux]) { URL.revokeObjectURL(MES_PIECES[vieux].url); delete MES_PIECES[vieux]; }
+    }
+    suite(o);
+  });
+}
+
+function apercuMaPiece(id, btn) {
+  chargerMonFichier(id, btn, function(o){
+    VUE_COURANTE = o;
+    $('vue-titre').textContent = o.nom;
+    $('vue-sous').textContent = o.type.indexOf('pdf') > -1 ? 'Document PDF' : o.type;
+    $('vue-corps').src = o.url;
+    $('vue').style.display = 'flex';
+    $('vue-fermer').focus();
+  });
+}
+
+function telechargerMaPiece(id, btn) {
+  chargerMonFichier(id, btn, function(o){ enregistrerFichier(o.url, o.nom); });
+}
+
+function telechargerDepuisVue() {
+  if (VUE_COURANTE) enregistrerFichier(VUE_COURANTE.url, VUE_COURANTE.nom);
+}
+
+function fermerVue() {
+  $('vue').style.display = 'none';
+  $('vue-corps').removeAttribute('src');
+  VUE_COURANTE = null;
+}
+
+function enregistrerFichier(url, nom) {
+  var a = document.createElement('a');
+  a.href = url; a.download = nom;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && $('vue') && $('vue').style.display === 'flex') fermerVue();
+});
 
 function telechargerRecap(id, btn) {
   var avant = btn.textContent;
