@@ -396,13 +396,52 @@ function ficheDossier(l) {
 
 // ── Pièces du dossier : consultation et dépôt ────────────────
 function blocPieces(l, ligne) {
-  return '<details class="coord"><summary>📎 Pièces du dossier</summary>' +
+  return '<details class="coord" ontoggle="chargerPieces(' + ligne + ', this)">' +
+    '<summary>📎 Pièces du dossier</summary>' +
     '<div class="lettre-actions" style="margin-top:9px;">' +
       '<label class="btn-rep" style="cursor:pointer;">➕ Ajouter des documents' +
         '<input type="file" id="up-' + ligne + '" multiple accept="image/*,.pdf" style="display:none;" ' +
         'onchange="deposerPieces(' + ligne + ', this)"></label>' +
       '<span class="maj" role="status" aria-live="polite"></span>' +
-    '</div><div class="pieces-dossier" id="pd-' + ligne + '"></div></details>';
+    '</div><div class="pieces pieces-dossier" id="pd-' + ligne + '" hidden></div></details>';
+}
+
+// Liste des pièces d'une ligne de la base. Chargée à la première ouverture
+// du volet, puis rechargée (forcer = true) après chaque dépôt pour que
+// l'ajout soit visible immédiatement.
+function chargerPieces(ligne, det, forcer) {
+  if (det && !det.open && !forcer) return;
+  var zone = document.getElementById('pd-' + ligne);
+  if (!zone) return;
+  if (zone.dataset.charge === '1' && !forcer) return;
+  zone.dataset.charge = '1';
+  zone.hidden = false;
+  zone.innerHTML = '<span class="maj">Chargement des pièces…</span>';
+  api({ action: 'adminPiecesDossier', email: SESSION.email, token: SESSION.token,
+        ligne: ligne }, function (res) {
+    if (!res || !res.ok) {
+      zone.dataset.charge = '0';
+      zone.innerHTML = '<span class="maj ko">⚠ ' + esc((res && res.error) || 'erreur') + '</span>';
+      return;
+    }
+    zone.innerHTML = listePiecesHtml(res.fichiers);
+  });
+}
+
+// Rendu commun aux deux listes (fiche dossier et pipeline)
+function listePiecesHtml(fichiers) {
+  if (!fichiers || !fichiers.length) {
+    return '<span class="maj">Aucune pièce dans ce dossier pour le moment.</span>';
+  }
+  var n = fichiers.length;
+  return '<div class="pieces-titre">' + n + ' pièce' + (n > 1 ? 's' : '') +
+    ' jointe' + (n > 1 ? 's' : '') + '</div>' +
+    fichiers.map(function (f) {
+      return '<button class="piece-lig" onclick="telechargerPiece(\'' + f.id + '\', this)">' +
+        '<span>' + (f.type.indexOf('pdf') > -1 ? '📄' : '🖼') + '</span>' +
+        '<span class="piece-nom">' + esc(f.nom) + '</span>' +
+        '<span class="piece-taille">' + f.taille + ' Ko</span><span class="piece-dl">↓</span></button>';
+    }).join('');
 }
 
 function deposerPieces(ligne, input) {
@@ -432,6 +471,7 @@ function deposerPieces(ligne, input) {
       if (res && res.ok) {
         msg.textContent = '✓ ' + res.ajoutes + ' document(s) ajouté(s) au dossier.';
         msg.className = 'maj ok';
+        chargerPieces(ligne, null, true);
       } else {
         msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
         msg.className = 'maj ko';
@@ -865,15 +905,7 @@ function voirPieces(url, btn) {
   zone.innerHTML = '<span class="maj">Chargement des pièces…</span>';
   api({ action: 'adminPieces', email: SESSION.email, token: SESSION.token, url: url }, function (res) {
     if (!res || !res.ok) { zone.innerHTML = '<span class="maj ko">⚠ ' + esc((res && res.error) || 'erreur') + '</span>'; return; }
-    if (!res.fichiers.length) { zone.innerHTML = '<span class="maj">Aucune pièce dans ce dossier.</span>'; return; }
-    zone.innerHTML = '<div class="pieces-titre">' + res.fichiers.length + ' pièce' +
-      (res.fichiers.length > 1 ? 's' : '') + ' jointe' + (res.fichiers.length > 1 ? 's' : '') + '</div>' +
-      res.fichiers.map(function (f) {
-        return '<button class="piece-lig" onclick="telechargerPiece(\'' + f.id + '\', this)">' +
-          '<span>' + (f.type.indexOf('pdf') > -1 ? '📄' : '🖼') + '</span>' +
-          '<span class="piece-nom">' + esc(f.nom) + '</span>' +
-          '<span class="piece-taille">' + f.taille + ' Ko</span><span class="piece-dl">↓</span></button>';
-      }).join('');
+    zone.innerHTML = listePiecesHtml(res.fichiers);
   });
 }
 
