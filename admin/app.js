@@ -391,6 +391,7 @@ function ficheDossier(l) {
     blocContact(l, lignesSheet) +
     (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
+    blocLdmRetour(l, lignesSheet) +
   '</div>';
 }
 
@@ -481,12 +482,26 @@ function memoriserPiece(id, o) {
   }
 }
 
+// D'où vient la pièce : une ligne de la base, ou le dossier Drive d'une
+// soumission du pipeline. Le serveur s'en sert pour revérifier les droits
+// au moment de l'accès, sans se fier à la liste qui a fourni l'identifiant.
+function contextePiece(btn) {
+  if (!btn || !btn.closest) return {};
+  var fiche = btn.closest('.pieces-dossier');
+  if (fiche) return { ligne: parseInt(fiche.id.replace('pd-', ''), 10) };
+  var entree = btn.closest('.pieces');
+  if (entree && entree.dataset.url) return { url: entree.dataset.url };
+  return {};
+}
+
 // Rapatrie une pièce par le portail (jamais par Drive), puis la met en cache.
 function chargerFichier(id, btn, suite) {
   if (PIECES[id]) { suite(PIECES[id]); return; }
   var avant = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
-  api({ action: 'adminFichier', email: SESSION.email, token: SESSION.token, id: id }, function (res) {
+  var ctx = contextePiece(btn);
+  api({ action: 'adminFichier', email: SESSION.email, token: SESSION.token, id: id,
+        ligne: ctx.ligne || '', url: ctx.url || '' }, function (res) {
     if (btn) { btn.disabled = false; btn.textContent = avant; }
     if (!res || !res.ok) { alert((res && res.error) || 'Document indisponible.'); return; }
     var bin = atob(res.donnees), buf = new Uint8Array(bin.length);
@@ -521,6 +536,102 @@ function enregistrer(url, nom) {
   var a = document.createElement('a');
   a.href = url; a.download = nom;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// ── Retour de la lettre de mission ───────────────────────────
+// Générer la LDM reste réservé aux associés (elle porte les honoraires) ;
+// enregistrer son retour est un geste administratif, ouvert au
+// collaborateur en charge du dossier pour ne pas créer de goulot.
+
+// Vocabulaire de la colonne « Statut LDM », identique au backend.
+var STATUTS_LDM = ['EN ATTENTE',
+                   'À VÉRIFIER (client partiellement signé)',
+                   'SIGNÉE',
+                   'HORS CAMPAGNE (à sortir)',
+                   'JAMAIS ENVOYÉE'];
+
+function blocLdmRetour(l, ligne) {
+  var courant = val(l, 'Statut LDM');
+  var signee = val(l, 'LDM signée le');
+  var connu = STATUTS_LDM.indexOf(courant) > -1;
+  return '<div class="actions ldm-bloc">' +
+    '<b style="color:var(--blue-dark);">Retour du client</b>' +
+    '<label class="btn-envoyer" style="cursor:pointer;">✅ LDM signée reçue' +
+      '<input type="file" accept=".pdf,image/*" style="display:none;" ' +
+      'onchange="deposerLdmSignee(' + ligne + ', this)"></label>' +
+    '<select onchange="changerStatutLdm(' + ligne + ', this)" aria-label="Statut de la lettre de mission">' +
+      (connu || !courant ? '' : '<option selected disabled>' + esc(courant) + '</option>') +
+      STATUTS_LDM.map(function (st) {
+        return '<option' + (st === courant ? ' selected' : '') + '>' + esc(st) + '</option>';
+      }).join('') +
+    '</select>' +
+    '<span class="maj' + (signee ? ' ok' : '') + '" role="status" aria-live="polite">' +
+      (signee ? '✓ signée le ' + esc(signee) : '') + '</span></div>';
+}
+
+function deposerLdmSignee(ligne, input) {
+  var msg = input.closest('.actions').querySelector('.maj');
+  var f = (input.files || [])[0];
+  if (!f) return;
+  if (f.size > 12 * 1024 * 1024) {
+    msg.textContent = '⚠ ' + f.name + ' dépasse 12 Mo.';
+    msg.className = 'maj ko'; input.value = ''; return;
+  }
+  msg.textContent = '⏳ Enregistrement…'; msg.className = 'maj';
+
+  var r = new FileReader();
+  r.onerror = function () { msg.textContent = '⚠ Lecture impossible.'; msg.className = 'maj ko'; };
+  r.onload = function () {
+    api({ action: 'adminLdmSignee', email: SESSION.email, token: SESSION.token, ligne: ligne,
+          fichiers: [{ nom: f.name, mimeType: f.type || 'application/pdf',
+                       data: String(r.result).split(',')[1] }] }, function (res) {
+      input.value = '';
+      if (!res || !res.ok) {
+        msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
+        msg.className = 'maj ko'; return;
+      }
+      msg.textContent = '✓ signée le ' + res.date;
+      msg.className = 'maj ok';
+      var sel = msg.parentNode.querySelector('select');
+      if (sel) sel.value = 'SIGNÉE';
+      appliquerStatutLdm(ligne, 'SIGNÉE', msg, res.date);
+      chargerPieces(ligne, null, true);   // le PDF signé rejoint les pièces
+    });
+  };
+  r.readAsDataURL(f);
+}
+
+function changerStatutLdm(ligne, sel) {
+  var msg = sel.closest('.actions').querySelector('.maj');
+  var statut = sel.value;
+  msg.textContent = '…'; msg.className = 'maj';
+  api({ action: 'adminStatutLdm', email: SESSION.email, token: SESSION.token,
+        ligne: ligne, statut: statut }, function (res) {
+    if (!res || !res.ok) {
+      msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
+      msg.className = 'maj ko'; return;
+    }
+    msg.textContent = '✓ enregistré'; msg.className = 'maj ok';
+    appliquerStatutLdm(ligne, statut, sel);
+  });
+}
+
+// Répercute le statut sur les données en mémoire et sur l'étiquette de la
+// fiche, pour éviter de recharger toute la base après un simple changement.
+function appliquerStatutLdm(ligne, statut, el, dateSignature) {
+  DATA.lignes.forEach(function (l) {
+    if (l[DATA.iLigne] !== ligne) return;
+    if (DATA.idx['Statut LDM'] !== undefined) l[DATA.idx['Statut LDM']] = statut;
+    if (dateSignature && DATA.idx['LDM signée le'] !== undefined) {
+      l[DATA.idx['LDM signée le']] = dateSignature;
+    }
+  });
+  var fiche = el && el.closest ? el.closest('.dossier') : null;
+  var tag = fiche ? fiche.querySelector('.dossier-head .tag') : null;
+  if (tag) {
+    tag.textContent = statutCourt(statut);
+    tag.className = 'tag ' + (statut === 'SIGNÉE' ? 'ok' : (statut === 'EN ATTENTE' ? 'warn' : 'neutre'));
+  }
 }
 
 function deposerPieces(ligne, input) {
@@ -979,6 +1090,7 @@ function voirPieces(url, btn) {
   })();
   if (zone.dataset.ouvert === '1') { zone.dataset.ouvert = '0'; zone.innerHTML = ''; return; }
   zone.dataset.ouvert = '1';
+  zone.dataset.url = url;
   zone.innerHTML = '<span class="maj">Chargement des pièces…</span>';
   api({ action: 'adminPieces', email: SESSION.email, token: SESSION.token, url: url }, function (res) {
     if (!res || !res.ok) { zone.innerHTML = '<span class="maj ko">⚠ ' + esc((res && res.error) || 'erreur') + '</span>'; return; }
