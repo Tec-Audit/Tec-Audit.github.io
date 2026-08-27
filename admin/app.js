@@ -387,10 +387,60 @@ function ficheDossier(l) {
       return '<div><span>' + esc(c[0]) + '</span>' + esc(c[1]) + '</div>';
     }).join('') + '</div>' +
     (comm ? '<div class="comm">💬 ' + esc(comm) + '</div>' : '') +
+    blocPieces(l, lignesSheet) +
     blocContact(l, lignesSheet) +
     (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
   '</div>';
+}
+
+// ── Pièces du dossier : consultation et dépôt ────────────────
+function blocPieces(l, ligne) {
+  return '<details class="coord"><summary>📎 Pièces du dossier</summary>' +
+    '<div class="lettre-actions" style="margin-top:9px;">' +
+      '<label class="btn-rep" style="cursor:pointer;">➕ Ajouter des documents' +
+        '<input type="file" id="up-' + ligne + '" multiple accept="image/*,.pdf" style="display:none;" ' +
+        'onchange="deposerPieces(' + ligne + ', this)"></label>' +
+      '<span class="maj" role="status" aria-live="polite"></span>' +
+    '</div><div class="pieces-dossier" id="pd-' + ligne + '"></div></details>';
+}
+
+function deposerPieces(ligne, input) {
+  var msg = input.closest('.lettre-actions').querySelector('.maj');
+  var fichiers = Array.from(input.files || []);
+  if (!fichiers.length) return;
+  var trop = fichiers.filter(function (f) { return f.size > 12 * 1024 * 1024; });
+  if (trop.length) {
+    msg.textContent = '⚠ ' + trop[0].name + ' dépasse 12 Mo.';
+    msg.className = 'maj ko'; input.value = ''; return;
+  }
+  msg.textContent = '⏳ Envoi de ' + fichiers.length + ' document(s)…';
+  msg.className = 'maj';
+
+  Promise.all(fichiers.map(function (f) {
+    return new Promise(function (res, rej) {
+      var r = new FileReader();
+      r.onload = function () { res({ nom: f.name, mimeType: f.type || 'application/octet-stream',
+                                     data: String(r.result).split(',')[1] }); };
+      r.onerror = function () { rej(new Error(f.name)); };
+      r.readAsDataURL(f);
+    });
+  })).then(function (payload) {
+    api({ action: 'adminAjouterPieces', email: SESSION.email, token: SESSION.token,
+          ligne: ligne, fichiers: payload }, function (res) {
+      input.value = '';
+      if (res && res.ok) {
+        msg.textContent = '✓ ' + res.ajoutes + ' document(s) ajouté(s) au dossier.';
+        msg.className = 'maj ok';
+      } else {
+        msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
+        msg.className = 'maj ko';
+      }
+    });
+  }).catch(function (e) {
+    msg.textContent = '⚠ Lecture impossible : ' + e.message;
+    msg.className = 'maj ko';
+  });
 }
 
 // ── Coordonnées du client (modifiables par l'associé et par le
@@ -784,6 +834,9 @@ function actionEntree(e) {
         Object.keys(collabs).sort().map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('') +
       '</select></label>' +
       '<label>Honoraires € HT <input type="number" id="ch-' + ligne + '" style="width:96px;"></label>' +
+      '<label>Facturation <select id="cper-' + ligne + '" style="width:118px;">' +
+        '<option value="">—</option><option>Mensuelle</option><option>Trimestrielle</option><option>Annuelle</option>' +
+      '</select></label>' +
       '<button class="btn-envoyer" onclick="creerDossier(' + ligne + ', this)">➕ Créer le dossier</button>' +
       '<span class="maj" role="status" aria-live="polite"></span></div></div>';
   }
@@ -853,7 +906,8 @@ function creerDossier(ligne, btn) {
   btn.disabled = true; btn.textContent = 'Création…';
   api({ action: 'adminCreerDossier', email: SESSION.email, token: SESSION.token, ligne: ligne,
         code: $('cd-' + ligne).value, associe: $('ca-' + ligne).value,
-        collaborateur: $('cc-' + ligne).value, honoraires: $('ch-' + ligne).value },
+        collaborateur: $('cc-' + ligne).value, honoraires: $('ch-' + ligne).value,
+        periodicite: $('cper-' + ligne).value },
     function (res) {
       btn.disabled = false; btn.textContent = '➕ Créer le dossier';
       if (res && res.ok) {

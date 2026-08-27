@@ -134,7 +134,8 @@
   <div class="content">
     <section id="sec-demarches" style="display:none;margin-bottom:26px;">
       <h2 class="titre-sec">Mes démarches</h2>
-      <p class="intro">Ce que vous nous avez transmis, et où cela en est.</p>
+      <p class="intro">Ce que vous nous avez transmis, et où cela en est.
+        Un document oublié&nbsp;? Vous pouvez compléter une démarche à tout moment.</p>
       <p class="intro" style="margin-top:-4px;">Une nouvelle société à déclarer&nbsp;?
         <a href="/constitution/" style="color:var(--blue);font-weight:600;">Constitution de société</a> ·
         <a href="/nouveau-client/" style="color:var(--blue);font-weight:600;">Reprise de dossier</a></p>
@@ -250,8 +251,53 @@ function charger(){
           (d.nbPieces ? ' · ' + esc(d.nbPieces) + ' pièce(s)' : '') + '</div></div>' +
         '<div style="display:flex;align-items:center;gap:10px;">' +
         (d.pdfId ? '<button class="dem-pdf" onclick="telechargerRecap(\'' + d.pdfId + '\', this)">↓ Récapitulatif</button>' : '') +
-        '<span class="dem-etat' + (fait ? ' fait' : '') + '">' + esc(d.etat) + '</span></div></div>';
+        '<label class="dem-pdf" style="cursor:pointer;">➕ Ajouter des documents' +
+          '<input type="file" multiple accept="image/*,.pdf" style="display:none;" ' +
+          'onchange="ajouterPieces(' + d.ligne + ', this)"></label>' +
+        '<span class="dem-etat' + (fait ? ' fait' : '') + '">' + esc(d.etat) + '</span></div>' +
+        '<div class="dem-msg" style="flex-basis:100%;font-size:12px;margin-top:8px;"></div></div>';
     }).join('');
+  });
+}
+
+// Compléter une démarche déjà transmise : un justificatif oublié, une pièce
+// demandée par le cabinet… sans avoir à refaire le formulaire.
+function ajouterPieces(ligne, input) {
+  var carte = input.closest('.dem');
+  var msg = carte.querySelector('.dem-msg');
+  var fichiers = Array.from(input.files || []);
+  if (!fichiers.length) return;
+  var trop = fichiers.filter(function(f){ return f.size > 12 * 1024 * 1024; });
+  if (trop.length) {
+    msg.textContent = '⚠ ' + trop[0].name + ' dépasse 12 Mo. Compressez-le ou envoyez-le par email.';
+    msg.style.color = '#c0392b'; input.value = ''; return;
+  }
+  msg.textContent = '⏳ Envoi de ' + fichiers.length + ' document(s)…';
+  msg.style.color = '#5a6070';
+
+  Promise.all(fichiers.map(function(f){
+    return new Promise(function(res, rej){
+      var r = new FileReader();
+      r.onload = function(){ res({ nom:f.name, mimeType:f.type||'application/octet-stream',
+                                   data:String(r.result).split(',')[1] }); };
+      r.onerror = function(){ rej(new Error(f.name)); };
+      r.readAsDataURL(f);
+    });
+  })).then(function(payload){
+    api({ action:'ajouterMesPieces', email:SESSION.email, token:SESSION.token,
+          ligne:ligne, fichiers:payload }, function(res){
+      input.value = '';
+      if (res && res.ok) {
+        msg.textContent = '✓ ' + res.ajoutes + ' document(s) transmis. Votre expert-comptable en est informé.';
+        msg.style.color = '#2e7d32';
+      } else {
+        msg.textContent = '⚠ ' + ((res && res.error) || 'Envoi impossible.');
+        msg.style.color = '#c0392b';
+      }
+    });
+  }).catch(function(e){
+    msg.textContent = '⚠ Lecture impossible : ' + e.message;
+    msg.style.color = '#c0392b';
   });
 }
 
