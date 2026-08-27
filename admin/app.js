@@ -437,11 +437,90 @@ function listePiecesHtml(fichiers) {
   return '<div class="pieces-titre">' + n + ' pièce' + (n > 1 ? 's' : '') +
     ' jointe' + (n > 1 ? 's' : '') + '</div>' +
     fichiers.map(function (f) {
-      return '<button class="piece-lig" onclick="telechargerPiece(\'' + f.id + '\', this)">' +
-        '<span>' + (f.type.indexOf('pdf') > -1 ? '📄' : '🖼') + '</span>' +
-        '<span class="piece-nom">' + esc(f.nom) + '</span>' +
-        '<span class="piece-taille">' + f.taille + ' Ko</span><span class="piece-dl">↓</span></button>';
+      var voir = apercuPossible(f.type);
+      return '<div class="piece-lig">' +
+        '<span>' + iconePiece(f.type) + '</span>' +
+        '<span class="piece-nom" title="' + esc(f.nom) + '">' + esc(f.nom) + '</span>' +
+        '<span class="piece-taille">' + tailleLisible(f.taille) + '</span>' +
+        '<button class="piece-act" onclick="apercuPiece(\'' + f.id + '\', this)"' +
+          (voir ? '' : ' disabled title="Aperçu indisponible pour ce format"') + '>👁 Aperçu</button>' +
+        '<button class="piece-act" onclick="telechargerPiece(\'' + f.id + '\', this)">↓ Télécharger</button>' +
+      '</div>';
     }).join('');
+}
+
+// Le serveur compte en Ko ; au-delà du millier on bascule en Mo.
+function tailleLisible(ko) {
+  return ko >= 1024 ? (ko / 1024).toFixed(1).replace('.', ',') + ' Mo' : ko + ' Ko';
+}
+
+// Formats que le navigateur sait afficher tels quels dans la modale.
+function apercuPossible(type) {
+  type = String(type || '');
+  return /^image\//.test(type) || type.indexOf('pdf') > -1 || /^text\//.test(type);
+}
+
+function iconePiece(type) {
+  type = String(type || '');
+  if (type.indexOf('pdf') > -1) return '📄';
+  if (/^image\//.test(type)) return '🖼';
+  return '📎';
+}
+
+// Cache des pièces déjà rapatriées : consulter puis télécharger un même
+// document ne coûte qu'un seul aller-retour. Les huit derniers documents
+// sont conservés, les plus anciens sont libérés.
+var PIECES = {}, PIECES_ORDRE = [];
+
+function memoriserPiece(id, o) {
+  PIECES[id] = o;
+  PIECES_ORDRE.push(id);
+  while (PIECES_ORDRE.length > 8) {
+    var vieux = PIECES_ORDRE.shift();
+    if (PIECES[vieux]) { URL.revokeObjectURL(PIECES[vieux].url); delete PIECES[vieux]; }
+  }
+}
+
+// Rapatrie une pièce par le portail (jamais par Drive), puis la met en cache.
+function chargerFichier(id, btn, suite) {
+  if (PIECES[id]) { suite(PIECES[id]); return; }
+  var avant = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  api({ action: 'adminFichier', email: SESSION.email, token: SESSION.token, id: id }, function (res) {
+    if (btn) { btn.disabled = false; btn.textContent = avant; }
+    if (!res || !res.ok) { alert((res && res.error) || 'Document indisponible.'); return; }
+    var bin = atob(res.donnees), buf = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    var o = { nom: res.nom, type: res.type,
+              url: URL.createObjectURL(new Blob([buf], { type: res.type })) };
+    memoriserPiece(id, o);
+    suite(o);
+  });
+}
+
+function apercuPiece(id, btn) {
+  chargerFichier(id, btn, function (o) {
+    APERCU_COURANT = o;
+    ouvrirApercu(o.nom, (o.type.indexOf('pdf') > -1 ? 'Document PDF' : o.type), true);
+    var cadre = $('apercu-corps');
+    cadre.removeAttribute('srcdoc');
+    cadre.src = o.url;
+  });
+}
+
+function telechargerPiece(id, btn) {
+  chargerFichier(id, btn, function (o) { enregistrer(o.url, o.nom); });
+}
+
+function telechargerDepuisApercu() {
+  if (APERCU_COURANT) enregistrer(APERCU_COURANT.url, APERCU_COURANT.nom);
+}
+
+// Déclenche l'enregistrement d'un blob déjà chargé, sans nouvel appel réseau.
+function enregistrer(url, nom) {
+  var a = document.createElement('a');
+  a.href = url; a.download = nom;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
 function deposerPieces(ligne, input) {
@@ -556,11 +635,9 @@ function apercuLDM(ligne, btn) {
   api(p, function (res) {
     btn.disabled = false; btn.textContent = '👁 Aperçu';
     if (!res || !res.ok) { alert('Aperçu impossible : ' + ((res && res.error) || 'erreur')); return; }
-    $('apercu-corps').srcdoc = res.html;
-    $('apercu-dest').textContent = res.denomination + ' — modèle ' +
-      (res.modele === 'sci' ? 'SCI' : 'général') + ', signée ' + res.signataire;
-    $('apercu-modale').style.display = 'flex';
-    $('apercu-fermer').focus();
+    apercuHtml('Aperçu de la lettre de mission',
+      res.denomination + ' — modèle ' + (res.modele === 'sci' ? 'SCI' : 'général') +
+      ', signée ' + res.signataire, res.html);
   });
 }
 
@@ -909,21 +986,6 @@ function voirPieces(url, btn) {
   });
 }
 
-function telechargerPiece(id, btn) {
-  var avant = btn.querySelector('.piece-dl').textContent;
-  btn.querySelector('.piece-dl').textContent = '…';
-  api({ action: 'adminFichier', email: SESSION.email, token: SESSION.token, id: id }, function (res) {
-    btn.querySelector('.piece-dl').textContent = avant;
-    if (!res || !res.ok) { alert((res && res.error) || 'Téléchargement impossible.'); return; }
-    var bin = atob(res.donnees), buf = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-    var url = URL.createObjectURL(new Blob([buf], { type: res.type }));
-    var a = document.createElement('a');
-    a.href = url; a.download = res.nom;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-  });
-}
 
 function allerAuDossier(denomination) {
   changerVue('dossiers');
@@ -961,14 +1023,39 @@ function apercuLettre(ligne, btn) {
     function (res) {
       btn.disabled = false; btn.textContent = '👁 Aperçu';
       if (!res || !res.ok) { alert('Aperçu impossible : ' + ((res && res.error) || 'erreur')); return; }
-      $('apercu-corps').srcdoc = res.html;
-      $('apercu-dest').textContent = res.destinataire || '(email du confrère manquant)';
-      $('apercu-modale').style.display = 'flex';
-      $('apercu-fermer').focus();
+      apercuHtml('Aperçu de la lettre confraternelle',
+        'Sera envoyée en PDF à ' + (res.destinataire || '(email du confrère manquant)'),
+        res.html);
     });
 }
 
-function fermerApercu() { $('apercu-modale').style.display = 'none'; }
+// Modale d'aperçu, partagée par la lettre confraternelle, la lettre de
+// mission (HTML injecté) et les pièces jointes (blob local).
+var APERCU_COURANT = null;
+
+function ouvrirApercu(titre, sous, avecTelechargement) {
+  $('apercu-titre').textContent = titre;
+  $('apercu-sous').textContent = sous || '';
+  $('apercu-dl').hidden = !avecTelechargement;
+  $('apercu-modale').style.display = 'flex';
+  $('apercu-fermer').focus();
+}
+
+function apercuHtml(titre, sous, html) {
+  var cadre = $('apercu-corps');
+  cadre.removeAttribute('src');
+  cadre.srcdoc = html;
+  APERCU_COURANT = null;
+  ouvrirApercu(titre, sous, false);
+}
+
+function fermerApercu() {
+  $('apercu-modale').style.display = 'none';
+  var cadre = $('apercu-corps');
+  cadre.removeAttribute('srcdoc');
+  cadre.removeAttribute('src');
+  APERCU_COURANT = null;
+}
 
 function envoyerLettre(ligne, btn) {
   var sig = $('sig-' + ligne).value;
