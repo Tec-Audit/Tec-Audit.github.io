@@ -86,6 +86,25 @@
   .pl-table tr:last-child td { border-bottom:none; }
   .pl-siren { font-family:ui-monospace, Menlo, monospace; white-space:nowrap; }
 
+  .completude { margin-top:10px; }
+  .cp-resume { display:flex; gap:12px; flex-wrap:wrap; align-items:center; font-size:12.5px; color:var(--muted); margin-bottom:10px; }
+  .cp-resume b { color:var(--blue-dark); }
+  .cp-phase { margin-top:10px; }
+  .cp-phase-titre { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted);
+                    margin-bottom:5px; display:flex; gap:8px; align-items:center; }
+  .cp-phase-titre .tag { font-size:10px; }
+  .cp-lig { display:flex; align-items:center; gap:9px; background:#f7f9fc; border:1px solid var(--border);
+            border-radius:4px; padding:6px 8px 6px 11px; margin-bottom:4px; font-size:12.5px; }
+  .cp-lig.fermee { opacity:.55; }
+  .cp-lib { flex:1; min-width:0; }
+  .cp-lib small { display:block; color:var(--muted); font-size:11px; }
+  .cp-st { font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+  .cp-st.attendue { background:#fff3cd; color:#7a5c00; }
+  .cp-st.recue, .cp-st.averifier { background:#e3ecfb; color:var(--blue-dark); }
+  .cp-st.ok { background:#e8f5e9; color:#1b5e20; }
+  .cp-st.na { background:#eee; color:#666; }
+  .cp-act { display:flex; gap:5px; flex-wrap:wrap; }
+
   #app { display:none; flex-direction:column; min-height:100vh; }
   .top { background:var(--blue-nav); color:white; padding:12px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
   .top-brand { display:flex; align-items:center; gap:12px; }
@@ -329,6 +348,7 @@
     <button class="tab" role="tab" aria-selected="false" data-vue="contacts" onclick="changerVue('contacts')">Contacts</button>
     <button class="tab" id="tab-entrees" role="tab" aria-selected="false" data-vue="entrees" onclick="changerVue('entrees')" style="display:none;">Nouveaux dossiers</button>
     <button class="tab" id="tab-pennylane" role="tab" aria-selected="false" data-vue="pennylane" onclick="changerVue('pennylane')" style="display:none;">Pennylane</button>
+    <button class="tab" id="tab-incomplets" role="tab" aria-selected="false" data-vue="incomplets" onclick="changerVue('incomplets')">À compléter</button>
   </nav>
 
   <div class="bar">

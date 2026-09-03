@@ -199,7 +199,7 @@ function lignesFiltrees() {
 
 // ── Rendu ────────────────────────────────────────────────────
 function rendre() {
-  if (VUE === 'entrees' || VUE === 'pennylane') return;
+  if (VUE === 'entrees' || VUE === 'pennylane' || VUE === 'incomplets') return;
   var L = lignesFiltrees();
   var contacts = {};
   L.forEach(function (l) { contacts[val(l, 'Email') || '(sans email)'] = 1; });
@@ -386,6 +386,7 @@ function ficheDossier(l) {
     }).join('') + '</div>' +
     (comm ? '<div class="comm">💬 ' + esc(comm) + '</div>' : '') +
     blocPieces(l, lignesSheet) +
+    blocCompletude(l, lignesSheet) +
     blocContact(l, lignesSheet) +
     (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
@@ -448,6 +449,142 @@ function listePiecesHtml(fichiers) {
     }).join('');
 }
 
+// ── Complétude : ce qu'on attend du dossier, ce qui est reçu, ce qui manque ──
+function blocCompletude(l, ligne) {
+  var code = val(l, 'Code dossier');
+  if (!code) return '';
+  return '<details class="coord" ontoggle="chargerCompletude(' + ligne + ', this)" data-code="' + esc(code) + '">' +
+    '<summary>✅ Complétude du dossier</summary>' +
+    '<div class="completude" id="cp-' + ligne + '" hidden></div></details>';
+}
+
+function chargerCompletude(ligne, det, forcer) {
+  if (det && !det.open && !forcer) return;
+  var zone = $('cp-' + ligne);
+  if (!zone) return;
+  if (zone.dataset.charge === '1' && !forcer) return;
+  zone.dataset.charge = '1';
+  zone.hidden = false;
+  var code = zone.parentNode.dataset.code;
+  zone.innerHTML = '<span class="maj">Chargement…</span>';
+  api({ action: 'adminCompletude', email: SESSION.email, token: SESSION.token, code: code }, function (res) {
+    if (!res || !res.ok) {
+      zone.dataset.charge = '0';
+      zone.innerHTML = '<span class="maj ko">⚠ ' + esc((res && res.error) || 'erreur') + '</span>';
+      return;
+    }
+    zone.innerHTML = rendreCompletude(res, ligne);
+  });
+}
+
+var LIBELLE_PHASE = { 'soumission': 'À la soumission', 'statuts-signes': 'Statuts signés', 'depot-capital': 'Dépôt du capital',
+                      'siren-definitif': 'Après immatriculation', 'ldm-signee': 'Après la lettre de mission signée' };
+var ORDRE_PHASES = ['soumission', 'statuts-signes', 'depot-capital', 'siren-definitif', 'ldm-signee'];
+
+function classeStatut(st) {
+  if (st === 'attendue') return 'attendue';
+  if (st === 'reçue') return 'recue';
+  if (st === 'à vérifier') return 'averifier';
+  if (st === 'non applicable') return 'na';
+  return 'ok';
+}
+
+function rendreCompletude(r, ligne) {
+  var code = r.code;
+  if (!r.lignes.length) {
+    return '<div class="cp-resume">Aucune checklist pour ce dossier.</div>' +
+      '<div class="lettre-actions"><button class="btn-envoyer" onclick="genererCompletude(' + ligne + ', this)">' +
+      '➕ Générer la checklist</button><span class="maj" role="status" aria-live="polite"></span></div>';
+  }
+  var h = '<div class="cp-resume">' +
+    (r.resume.complet ? '<b>✓ Dossier complet</b> sur les phases ouvertes'
+      : '<b>' + r.resume.attendues + '</b> en attente du client · <b>' + r.resume.aTraiter + '</b> à vérifier par le cabinet') +
+    '<span style="flex:1"></span>' +
+    '<button class="btn-rep" onclick="genererCompletude(' + ligne + ', this)" title="Ajoute les éléments manquants selon les règles">↻ Compléter</button>' +
+    '<span class="maj" role="status" aria-live="polite"></span></div>';
+
+  ORDRE_PHASES.forEach(function (ph) {
+    var lignes = r.lignes.filter(function (l) { return l.phase === ph; });
+    if (!lignes.length) return;
+    var ouverte = r.phases.indexOf(ph) > -1;
+    h += '<div class="cp-phase"><div class="cp-phase-titre">' + esc(LIBELLE_PHASE[ph] || ph) +
+      '<span class="tag ' + (ouverte ? 'ok' : 'neutre') + '">' + (ouverte ? 'ouverte' : 'à venir') + '</span></div>';
+    lignes.forEach(function (l) {
+      var b = function (statut, txt, cls) {
+        return '<button class="piece-act' + (cls ? ' ' + cls : '') + '" onclick="statutPiece(' + ligne + ', \'' + esc(code) + '\', ' +
+          l.ligne + ', \'' + statut + '\', this)">' + txt + '</button>';
+      };
+      var actions = '';
+      if (l.statut === 'attendue') {
+        if (l.type === 'piece') {
+          actions += '<label class="piece-act" style="cursor:pointer;">📎 Déposer<input type="file" multiple accept="image/*,.pdf" style="display:none;" ' +
+            'onchange="deposerPour(' + ligne + ', \'' + esc(l.cle) + '\', \'' + esc(l.personne) + '\', this)"></label>' +
+            b('reçue hors portail', 'Reçue par email');
+        } else {
+          actions += b('faite', '✓ Faite');
+        }
+        actions += b('non applicable', 'N/A');
+      } else if (l.statut === 'reçue' || l.statut === 'à vérifier') {
+        if (l.fichier) actions += '<button class="piece-act" onclick="apercuPiece(\'' + l.fichier + '\', this)">👁 Aperçu</button>';
+        actions += b('vérifiée', '✓ Vérifiée') + b('attendue', '↩ Redemander');
+      } else {
+        actions += b('attendue', '↩ Rouvrir');
+      }
+      h += '<div class="cp-lig' + (ouverte ? '' : ' fermee') + '">' +
+        '<span>' + (l.type === 'demarche' ? '📌' : '📄') + '</span>' +
+        '<span class="cp-lib">' + esc(l.libelle) + (l.personne ? ' — <b>' + esc(l.personne) + '</b>' : '') +
+        (l.verdict ? '<small>' + esc(l.verdict) + '</small>' : '') +
+        (l.verifiePar ? '<small>' + esc(l.statut) + ' par ' + esc(l.verifiePar) + ' le ' + esc(l.verifieLe) + '</small>' : '') +
+        '</span>' +
+        '<span class="cp-st ' + classeStatut(l.statut) + '">' + esc(l.statut) + '</span>' +
+        '<span class="cp-act">' + actions + '</span></div>';
+    });
+    h += '</div>';
+  });
+  return h;
+}
+
+function genererCompletude(ligne, btn) {
+  var zone = $('cp-' + ligne);
+  var msg = btn.parentNode.querySelector('.maj');
+  btn.disabled = true;
+  api({ action: 'adminGenererPieces', email: SESSION.email, token: SESSION.token, code: zone.parentNode.dataset.code }, function (res) {
+    btn.disabled = false;
+    if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
+    chargerCompletude(ligne, null, true);
+  });
+}
+
+function statutPiece(ligne, code, lignePiece, statut, btn) {
+  var msg = btn.closest('.completude').querySelector('.maj');
+  btn.disabled = true;
+  api({ action: 'adminStatutPiece', email: SESSION.email, token: SESSION.token, code: code, ligne: lignePiece, statut: statut }, function (res) {
+    if (!res || !res.ok) { btn.disabled = false; msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
+    chargerCompletude(ligne, null, true);
+  });
+}
+
+// Dépôt d'une pièce pour une ligne précise : le fichier part avec sa
+// déclaration, la ligne passe à « reçue », le volet Pièces se rafraîchit.
+function deposerPour(ligne, cle, personne, input) {
+  var zone = $('cp-' + ligne);
+  var msg = zone.querySelector('.maj');
+  var fichiers = Array.from(input.files || []);
+  if (!fichiers.length) return;
+  var refus = refusEnvoi(fichiers);
+  if (refus) { msg.textContent = '⚠ ' + refus; msg.className = 'maj ko'; input.value = ''; return; }
+  msg.textContent = '⏳ Envoi…'; msg.className = 'maj';
+  lireFichiers(fichiers, 'application/octet-stream').then(function (payload) {
+    payload.forEach(function (f) { f.pour = { cle: cle, personne: personne }; });
+    api({ action: 'adminAjouterPieces', email: SESSION.email, token: SESSION.token, ligne: ligne, fichiers: payload }, function (res) {
+      input.value = '';
+      if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
+      chargerCompletude(ligne, null, true);
+      chargerPieces(ligne, null, true);
+    });
+  }).catch(function (e) { msg.textContent = '⚠ Lecture impossible : ' + e.message; msg.className = 'maj ko'; });
+}
+
 // Le serveur compte en Ko ; au-delà du millier on bascule en Mo.
 function tailleLisible(ko) {
   return ko >= 1024 ? (ko / 1024).toFixed(1).replace('.', ',') + ' Mo' : ko + ' Ko';
@@ -487,6 +624,8 @@ function contextePiece(btn) {
   if (!btn || !btn.closest) return {};
   var fiche = btn.closest('.pieces-dossier');
   if (fiche) return { ligne: parseInt(fiche.id.replace('pd-', ''), 10) };
+  var cp = btn.closest('.completude');
+  if (cp) return { ligne: parseInt(cp.id.replace('cp-', ''), 10) };
   var entree = btn.closest('.pieces');
   if (entree && entree.dataset.url) return { url: entree.dataset.url };
   return {};
@@ -908,11 +1047,12 @@ function ouvrirLigne(id) {
 
 function changerVue(v) {
   VUE = v;
-  var horsDossiers = (v === 'entrees' || v === 'pennylane');
+  var horsDossiers = (v === 'entrees' || v === 'pennylane' || v === 'incomplets');
   document.querySelector('.apercu').style.display = horsDossiers ? 'none' : '';
   document.querySelector('.bar').style.display = horsDossiers ? 'none' : '';
   if (v === 'entrees') { chargerEntrees(); }
   if (v === 'pennylane') { chargerPennylane('etat'); }
+  if (v === 'incomplets') { chargerIncomplets(); }
   document.querySelectorAll('.tab').forEach(function (t) {
     var actif = t.dataset.vue === v;
     t.classList.toggle('active', actif);
@@ -991,6 +1131,36 @@ function rendrePennylane(r) {
     h += '<div class="pl-sec"><p>✓ Base et portefeuille Pennylane parfaitement alignés.</p></div>';
   }
   $('liste').innerHTML = h;
+}
+
+// ── Dossiers à compléter ──────────────────────────────────────
+function chargerIncomplets() {
+  document.querySelectorAll('.tab').forEach(function (t) {
+    var actif = t.dataset.vue === 'incomplets';
+    t.classList.toggle('active', actif);
+    t.setAttribute('aria-selected', actif ? 'true' : 'false');
+  });
+  $('liste').innerHTML = '<p class="vide">Chargement…</p>';
+  api({ action: 'adminIncomplets', email: SESSION.email, token: SESSION.token }, function (res) {
+    if (!res || !res.ok) { $('liste').innerHTML = '<div class="alerte">⚠ ' + esc((res && res.error) || 'Erreur') + '</div>'; return; }
+    rendreIncomplets(res.dossiers);
+  });
+}
+
+function rendreIncomplets(dossiers) {
+  if (!dossiers.length) {
+    $('liste').innerHTML = '<div class="pl-sec"><p>✓ Aucun dossier incomplet parmi ceux qui ont une checklist.</p></div>';
+    return;
+  }
+  $('liste').innerHTML = '<div class="pl-sec"><h3>Dossiers à compléter (' + dossiers.length + ')</h3>' +
+    '<p>Éléments en attente du client, et pièces reçues à vérifier par le cabinet, sur les phases ouvertes.</p>' +
+    '<table class="pl-table"><tr><th>Dossier</th><th>Code</th><th>Collaborateur</th><th>Phase</th>' +
+    '<th>En attente du client</th><th>À vérifier</th><th></th></tr>' +
+    dossiers.map(function (d) {
+      return '<tr><td>' + esc(d.denomination) + '</td><td>' + esc(d.code) + '</td><td>' + esc(d.collaborateur) + '</td>' +
+        '<td>' + esc(LIBELLE_PHASE[d.phase] || d.phase) + '</td><td><b>' + d.attendues + '</b></td><td>' + d.aTraiter + '</td>' +
+        '<td><button class="btn-rep" onclick="allerAuDossier(\'' + esc(d.denomination).replace(/'/g, "\\'") + '\')">→ Ouvrir</button></td></tr>';
+    }).join('') + '</table></div>';
 }
 
 function chargerEntrees() {
