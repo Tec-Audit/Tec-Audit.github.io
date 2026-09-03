@@ -445,6 +445,7 @@ function listePiecesHtml(fichiers) {
         '<button class="piece-act" onclick="apercuPiece(\'' + f.id + '\', this)"' +
           (voir ? '' : ' disabled title="Aperçu indisponible pour ce format"') + '>👁 Aperçu</button>' +
         '<button class="piece-act" onclick="telechargerPiece(\'' + f.id + '\', this)">↓ Télécharger</button>' +
+        '<button class="piece-act" title="Mettre à la corbeille" onclick="supprimerFichier(\'' + f.id + '\', this)">🗑</button>' +
       '</div>';
     }).join('');
 }
@@ -525,15 +526,20 @@ function rendreCompletude(r, ligne) {
         }
         actions += b('non applicable', 'N/A');
       } else if (l.statut === 'reçue' || l.statut === 'à vérifier') {
-        if (l.fichier) actions += '<button class="piece-act" onclick="apercuPiece(\'' + l.fichier + '\', this)">👁 Aperçu</button>';
         actions += b('vérifiée', '✓ Vérifiée') + b('attendue', '↩ Redemander');
       } else {
         actions += b('attendue', '↩ Rouvrir');
+      }
+      if (l.fichier) {
+        actions = '<button class="piece-act" onclick="apercuPiece(\'' + l.fichier + '\', this)">👁 Aperçu</button>' + actions +
+          '<button class="piece-act" title="Met le fichier à la corbeille et remet l\'élément en attente" ' +
+          'onclick="supprimerFichier(\'' + l.fichier + '\', this)">🗑</button>';
       }
       h += '<div class="cp-lig' + (ouverte ? '' : ' fermee') + '">' +
         '<span>' + (l.type === 'demarche' ? '📌' : '📄') + '</span>' +
         '<span class="cp-lib">' + esc(l.libelle) + (l.personne ? ' — <b>' + esc(l.personne) + '</b>' : '') +
         (l.verdict ? '<small>' + esc(l.verdict) + '</small>' : '') +
+        (l.recuLe && !l.verifiePar ? '<small>reçue le ' + esc(l.recuLe) + '</small>' : '') +
         (l.verifiePar ? '<small>' + esc(l.statut) + ' par ' + esc(l.verifiePar) + ' le ' + esc(l.verifieLe) + '</small>' : '') +
         '</span>' +
         '<span class="cp-st ' + classeStatut(l.statut) + '">' + esc(l.statut) + '</span>' +
@@ -560,7 +566,8 @@ function statutPiece(ligne, code, lignePiece, statut, btn) {
   btn.disabled = true;
   api({ action: 'adminStatutPiece', email: SESSION.email, token: SESSION.token, code: code, ligne: lignePiece, statut: statut }, function (res) {
     if (!res || !res.ok) { btn.disabled = false; msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
-    chargerCompletude(ligne, null, true);
+    var zone = $('cp-' + ligne);
+    if (res.lignes) zone.innerHTML = rendreCompletude(res, ligne); else chargerCompletude(ligne, null, true);
   });
 }
 
@@ -576,11 +583,13 @@ function deposerPour(ligne, cle, personne, input) {
   msg.textContent = '⏳ Envoi…'; msg.className = 'maj';
   lireFichiers(fichiers, 'application/octet-stream').then(function (payload) {
     payload.forEach(function (f) { f.pour = { cle: cle, personne: personne }; });
-    api({ action: 'adminAjouterPieces', email: SESSION.email, token: SESSION.token, ligne: ligne, fichiers: payload }, function (res) {
+    api({ action: 'adminAjouterPieces', email: SESSION.email, token: SESSION.token, ligne: ligne, fichiers: payload,
+          code: zone.parentNode.dataset.code }, function (res) {
       input.value = '';
       if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
-      chargerCompletude(ligne, null, true);
-      chargerPieces(ligne, null, true);
+      if (res.completude) zone.innerHTML = rendreCompletude(res.completude, ligne); else chargerCompletude(ligne, null, true);
+      var pd = $('pd-' + ligne);
+      if (pd && pd.dataset.charge === '1') chargerPieces(ligne, null, true);
     });
   }).catch(function (e) { msg.textContent = '⚠ Lecture impossible : ' + e.message; msg.className = 'maj ko'; });
 }
@@ -662,6 +671,32 @@ function apercuPiece(id, btn) {
 
 function telechargerPiece(id, btn) {
   chargerFichier(id, btn, function (o) { enregistrer(o.url, o.nom); });
+}
+
+// Suppression d'une pièce (cabinet) : corbeille Drive, checklist remise en
+// attente. Le contexte du bouton donne au serveur le dossier à vérifier.
+function supprimerFichier(id, btn) {
+  if (!confirm('Mettre ce document à la corbeille ? L\'élément de checklist correspondant repassera « en attente ».')) return;
+  var ctx = contextePiece(btn);
+  var cp = btn.closest('.completude');
+  var code = cp ? cp.parentNode.dataset.code : '';
+  btn.disabled = true; btn.textContent = '…';
+  api({ action: 'adminSupprimerFichier', email: SESSION.email, token: SESSION.token, id: id,
+        ligne: ctx.ligne || '', url: ctx.url || '', code: code }, function (res) {
+    if (!res || !res.ok) { btn.disabled = false; btn.textContent = '🗑'; alert((res && res.error) || 'Suppression impossible.'); return; }
+    if (PIECES[id]) { URL.revokeObjectURL(PIECES[id].url); delete PIECES[id]; }
+    var ligne = ctx.ligne;
+    if (ligne) {
+      var zone = $('cp-' + ligne);
+      if (zone) { if (res.completude) zone.innerHTML = rendreCompletude(res.completude, ligne); else if (zone.dataset.charge === '1') chargerCompletude(ligne, null, true); }
+      var pd = $('pd-' + ligne);
+      if (pd && pd.dataset.charge === '1') chargerPieces(ligne, null, true);
+    } else if (ctx.url) {
+      var entree = btn.closest('.entree');
+      var lien = entree && entree.querySelector('.lien-pieces');
+      if (lien) { entree.querySelector('.pieces').dataset.ouvert = '0'; voirPieces(ctx.url, lien); }
+    }
+  });
 }
 
 function telechargerDepuisApercu() {

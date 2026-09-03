@@ -631,6 +631,13 @@ function prefillSiren() {
       set('cp', siege.code_postal || '');
       set('ville', siege.libelle_commune || '');
       set('naf', e.activite_principale || '');
+      // Dirigeant : première personne physique déclarée au registre
+      var dir = (e.dirigeants || []).filter(function (x) { return String(x.type_dirigeant || '').indexOf('physique') > -1; })[0];
+      if (dir) {
+        set('d-nom', dir.nom || '');
+        set('d-prenom', String(dir.prenoms || '').split(/[ ,]+/)[0] || '');
+        set('d-fonction', dir.qualite || '');
+      }
       // N° TVA : FR + clé calculée + SIREN
       var cle = (12 + 3 * (parseInt(siren, 10) % 97)) % 97;
       set('tva', 'FR' + (cle < 10 ? '0' : '') + cle + siren);

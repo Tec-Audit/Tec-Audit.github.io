@@ -149,6 +149,7 @@
     </div>
     <button class="btn" id="login-btn" onclick="doLogin()">Recevoir mon code</button>
     <div class="err" id="login-error" role="alert"></div>
+      <div style="text-align:center;margin-top:10px;font-size:12.5px;"><a href="#" onclick="return dejaUnCode()" style="color:var(--blue);">J'ai déjà reçu un code</a></div>
   </div>
 </div>
 
@@ -198,6 +199,7 @@
 
 <script>
 function sessionExpiree() {
+  oublierSession();
   var el = document.getElementById('expire');
   if (!el || el.style.display === 'flex') return;
   var ch = document.getElementById('chargement'); if (ch) ch.style.display = 'none';
@@ -227,6 +229,31 @@ function api(p, cb){
     .catch(function(e){ cb({ ok:false, error:'Erreur réseau : ' + e.message }); });
 }
 
+// La session (6 h, comme côté serveur) survit à un rechargement et aux
+// autres pages du portail : un code par demi-journée, pas par clic.
+var CLE_SESSION = 'tec.portail.session';
+function memoriserSession() {
+  try { localStorage.setItem(CLE_SESSION, JSON.stringify({ email: SESSION.email, token: SESSION.token, exp: Date.now() + 6 * 3600 * 1000 })); } catch (e) {}
+}
+function oublierSession() { try { localStorage.removeItem(CLE_SESSION); } catch (e) {} }
+function restaurerSession() {
+  try {
+    var s = JSON.parse(localStorage.getItem(CLE_SESSION) || 'null');
+    if (!s || !s.token || !(s.exp > Date.now())) return false;
+    SESSION = { email: s.email, token: s.token };
+    $('login-screen').style.display = 'none'; $('app').style.display = '';
+    afficherChargement(true);
+    charger();
+    return true;
+  } catch (e) { return false; }
+}
+function dejaUnCode() {
+  var err = $('login-error');
+  if (!($('login-email').value || '').trim()) { err.textContent = 'Indiquez d\'abord votre adresse email.'; err.style.display = 'block'; return false; }
+  ETAPE = 'code'; $('code-field').style.display = ''; $('login-btn').textContent = 'Se connecter'; $('login-code').focus();
+  return false;
+}
+
 function doLogin(){ if (ETAPE === 'email') demanderCode(); else verifierCode(); }
 
 function demanderCode(){
@@ -254,6 +281,7 @@ function verifierCode(){
   api({ action:'verifierCode', email: email, code: code }, function(res){
     if (res && res.ok){
       SESSION = { email: email.toLowerCase(), token: res.token || '' };
+      memoriserSession();
       $('login-screen').style.display='none'; $('app').style.display='';
       afficherChargement(true);
       charger();
@@ -264,6 +292,21 @@ function verifierCode(){
   });
 }
 
+var SANS_DOSSIER = false, NB_DEMARCHES = -1;
+// Sans dossier dans la base : soit une démarche est en cours d'ouverture au
+// cabinet (message rassurant), soit l'adresse n'est pas connue (contact).
+function messageSansDossier(){
+  var enCours = NB_DEMARCHES > 0;
+  $('liste').innerHTML = '<div class="ok" style="background:#fff8e1;border-left-color:#f9a825;color:#6d4c00;">' +
+    (enCours
+      ? 'Votre dossier est en cours d\'ouverture au cabinet. Vous pourrez modifier vos coordonnées ici dès qu\'il sera créé ; ' +
+        'en attendant, suivez votre démarche et complétez vos pièces ci-dessous.'
+      : NB_DEMARCHES === 0
+        ? 'Aucun dossier ni démarche n\'est rattaché à cette adresse email. Si vous êtes client du cabinet, ' +
+          'contactez-nous au 01 45 08 44 64 : nous rattacherons votre adresse.'
+        : 'Aucun dossier n\'est rattaché à cette adresse pour le moment…') + '</div>';
+}
+
 function charger(){
   $('liste').innerHTML = '<p class="intro">Chargement de vos dossiers…</p>';
   api({ action:'mesDossiers', email:SESSION.email, token:SESSION.token }, function(res){
@@ -271,9 +314,8 @@ function charger(){
     if (!res || !res.ok){ $('liste').innerHTML = '<div class="err" style="display:block;">' + esc((res&&res.error)||'Erreur') + '</div>'; return; }
     DOSSIERS = res.dossiers || [];
     if (!DOSSIERS.length){
-      $('liste').innerHTML = '<div class="ok" style="background:#fff8e1;border-left-color:#f9a825;color:#6d4c00;">' +
-        'Aucun dossier n\'est rattaché à cette adresse email dans nos fichiers. ' +
-        'Si vous êtes client du cabinet, contactez-nous au 01 45 08 44 64 : nous rattacherons votre adresse.</div>';
+      SANS_DOSSIER = true;
+      messageSansDossier();
       $('btn-save').style.display='none';
       return;
     }
@@ -281,7 +323,9 @@ function charger(){
     chargerManques();
   });
   api({ action:'mesDemarches', email:SESSION.email, token:SESSION.token }, function(res){
-    if (!res || !res.ok || !res.demarches || !res.demarches.length) return;
+    NB_DEMARCHES = (res && res.ok && res.demarches) ? res.demarches.length : 0;
+    if (SANS_DOSSIER) messageSansDossier();
+    if (!NB_DEMARCHES) return;
     $('sec-demarches').style.display = '';
     $('demarches').innerHTML = res.demarches.map(function(d){
       var fait = d.etat.indexOf('Dossier ouvert') === 0;
@@ -292,15 +336,18 @@ function charger(){
           ' · transmise le ' + esc(String(d.date).split(' ')[0]) +
           (d.nbPieces ? ' · ' + esc(d.nbPieces) + ' pièce(s)' : '') + '</div></div>' +
         '<div style="display:flex;align-items:center;gap:10px;">' +
-        (d.pdfId ? '<button class="dem-pdf" onclick="telechargerRecap(\'' + d.pdfId + '\', this)">↓ Récapitulatif</button>' : '') +
+        (d.pdfId ? '<button class="dem-pdf" onclick="apercuMaPiece(\'' + d.pdfId + '\', this)">👁 Récapitulatif</button>' : '') +
         '<button class="dem-pdf" onclick="voirMesPieces(' + d.ligne + ', this)">📎 Mes documents</button>' +
         '<label class="dem-pdf" style="cursor:pointer;">➕ Ajouter des documents' +
           '<input type="file" multiple accept="image/*,.pdf" style="display:none;" ' +
           'onchange="ajouterPieces(' + d.ligne + ', this)"></label>' +
         '<span class="dem-etat' + (fait ? ' fait' : '') + '">' + esc(d.etat) + '</span></div>' +
         '<div class="dem-msg" style="flex-basis:100%;font-size:12px;margin-top:8px;"></div>' +
-        '<div class="mes-pieces" id="mp-' + d.ligne + '" hidden></div></div>';
+        '<div class="mes-pieces" id="mp-' + d.ligne + '" hidden></div>' +
+        (d.codeDossier ? '' : '<div class="manques" data-code="S' + d.ligne + '" hidden style="flex-basis:100%;margin-top:8px;border-radius:5px;"></div>') +
+        '</div>';
     }).join('');
+    chargerManques();
   });
 }
 
@@ -409,6 +456,8 @@ function listeMesPiecesHtml(fichiers) {
         '<button class="mp-act" onclick="apercuMaPiece(\'' + f.id + '\', this)"' +
           (voir ? '' : ' disabled title="Aperçu indisponible pour ce format"') + '>👁 Aperçu</button>' +
         '<button class="mp-act" onclick="telechargerMaPiece(\'' + f.id + '\', this)">↓ Télécharger</button>' +
+        (f.nom.indexOf('[Ajout client') > -1
+          ? '<button class="mp-act" title="Retirer ce document (tant qu\'il n\'a pas été vérifié)" onclick="retirerMaPiece(\'' + f.id + '\', this)">🗑</button>' : '') +
       '</div>';
     }).join('');
 }
@@ -480,6 +529,19 @@ function telechargerDepuisVue() {
   if (VUE_COURANTE) enregistrerFichier(VUE_COURANTE.url, VUE_COURANTE.nom);
 }
 
+function retirerMaPiece(id, btn) {
+  if (!confirm('Retirer ce document ? Il sera supprimé et l\'élément redeviendra « à fournir ».')) return;
+  var zone = btn.closest('.mes-pieces');
+  var ligne = zone ? parseInt(zone.id.replace('mp-', ''), 10) : 0;
+  btn.disabled = true; btn.textContent = '…';
+  api({ action:'retirerMaPiece', email:SESSION.email, token:SESSION.token, ligne:ligne, id:id }, function(res){
+    if (!res || !res.ok) { btn.disabled = false; btn.textContent = '🗑'; alert((res && res.error) || 'Retrait impossible.'); return; }
+    if (MES_PIECES[id]) { URL.revokeObjectURL(MES_PIECES[id].url); delete MES_PIECES[id]; }
+    chargerMesPieces(ligne);
+    chargerManques();
+  });
+}
+
 function fermerVue() {
   $('vue').style.display = 'none';
   $('vue-corps').removeAttribute('src');
@@ -501,7 +563,8 @@ function chargerManques() {
   api({ action:'mesManques', email:SESSION.email, token:SESSION.token }, function(res){
     if (!res || !res.ok) return;
     res.dossiers.forEach(function(d){
-      var zone = document.querySelector('.manques[data-code="' + d.code.replace(/"/g, '') + '"]');
+      var cle = d.code || ('S' + d.ligneSoumission);
+      var zone = document.querySelector('.manques[data-code="' + cle.replace(/"/g, '') + '"]');
       if (!zone) return;
       zone.hidden = false;
       zone.innerHTML = rendreManques(d);
@@ -519,7 +582,7 @@ function rendreManques(d) {
       var action = m.type === 'piece'
         ? '<label class="dem-pdf" style="cursor:pointer;white-space:nowrap;">📎 Déposer' +
           '<input type="file" multiple accept="image/*,.pdf" style="display:none;" ' +
-          'onchange="deposerManque(\'' + esc(d.code) + '\', \'' + esc(m.cle) + '\', \'' + esc(m.personne) + '\', this)"></label>'
+          'onchange="deposerManque(\'' + esc(d.code || '') + '\', ' + (d.ligneSoumission || 0) + ', \'' + esc(m.cle) + '\', \'' + esc(m.personne) + '\', this)"></label>'
         : '<button class="dem-pdf" style="white-space:nowrap;" onclick="demarcheFaite(\'' + esc(d.code) + '\', ' + m.ligne + ', this)">✓ C\'est fait</button>';
       return '<div class="mq-lig"><span>' + (m.type === 'piece' ? '📄' : '📌') + '</span>' +
         '<div class="mq-lib">' + esc(m.libelle) + (m.personne ? ' — <b>' + esc(m.personne) + '</b>' : '') +
@@ -528,7 +591,7 @@ function rendreManques(d) {
     }).join('');
 }
 
-function deposerManque(code, cle, personne, input) {
+function deposerManque(code, ligneSoumission, cle, personne, input) {
   var lig = input.closest('.mq-lig');
   var msg = lig.querySelector('.mq-msg');
   var fichiers = Array.from(input.files || []);
@@ -538,7 +601,9 @@ function deposerManque(code, cle, personne, input) {
   msg.textContent = '⏳ Envoi…'; msg.style.color = '#5a6070';
   lireFichiers(fichiers).then(function(payload){
     payload.forEach(function(f){ f.pour = { cle: cle, personne: personne }; });
-    api({ action:'ajouterMesPiecesDossier', email:SESSION.email, token:SESSION.token, code:code, fichiers:payload }, function(res){
+    var req = code ? { action:'ajouterMesPiecesDossier', code:code } : { action:'ajouterMesPieces', ligne:ligneSoumission };
+    req.email = SESSION.email; req.token = SESSION.token; req.fichiers = payload;
+    api(req, function(res){
       input.value = '';
       if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'Envoi impossible.'); msg.style.color = '#c0392b'; return; }
       msg.textContent = '✓ Reçu, merci. Le cabinet vérifie.'; msg.style.color = '#2e7d32';
@@ -636,6 +701,8 @@ document.addEventListener('DOMContentLoaded', function(){
     $(id).addEventListener('keydown', function(e){ if (e.key==='Enter') doLogin(); });
   });
 });
+
+restaurerSession();
 </script>
 </body>
 </html>
