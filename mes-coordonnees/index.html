@@ -68,6 +68,14 @@
   .mp-act:hover:not([disabled]) { background:var(--blue-light); border-color:var(--blue); }
   .mp-act[disabled] { opacity:.4; cursor:default; }
   .mp-vide { font-size:12px; color:var(--muted); }
+  .manques { padding:12px 16px 14px; border-top:1px solid var(--border); background:#fffdf3; }
+  .mq-titre { font-size:13px; font-weight:700; color:#7a5c00; margin-bottom:6px; }
+  .mq-ok { font-size:13px; color:#1b5e20; }
+  .mq-lig { display:flex; align-items:flex-start; gap:10px; padding:9px 0; border-top:1px dashed var(--border); font-size:13px; flex-wrap:wrap; }
+  .mq-lig:first-of-type { border-top:none; }
+  .mq-lib { flex:1; min-width:0; }
+  .mq-aide { font-size:12px; color:var(--muted); margin-top:2px; line-height:1.5; }
+  .mq-msg { flex-basis:100%; font-size:12px; margin-top:6px; }
 
   #vue { display:none; position:fixed; inset:0; background:rgba(22,33,62,.55); z-index:70;
          align-items:center; justify-content:center; padding:24px; }
@@ -270,6 +278,7 @@ function charger(){
       return;
     }
     rendre();
+    chargerManques();
   });
   api({ action:'mesDemarches', email:SESSION.email, token:SESSION.token }, function(res){
     if (!res || !res.ok || !res.demarches || !res.demarches.length) return;
@@ -487,6 +496,66 @@ document.addEventListener('keydown', function(e){
   if (e.key === 'Escape' && $('vue') && $('vue').style.display === 'flex') fermerVue();
 });
 
+// ── Ce qu'il manque au dossier ────────────────────────────────
+function chargerManques() {
+  api({ action:'mesManques', email:SESSION.email, token:SESSION.token }, function(res){
+    if (!res || !res.ok) return;
+    res.dossiers.forEach(function(d){
+      var zone = document.querySelector('.manques[data-code="' + d.code.replace(/"/g, '') + '"]');
+      if (!zone) return;
+      zone.hidden = false;
+      zone.innerHTML = rendreManques(d);
+    });
+  });
+}
+
+function rendreManques(d) {
+  if (!d.manques.length) {
+    return '<div class="mq-ok">✓ Rien à nous transmettre pour le moment' +
+      (d.enCours ? ' — ' + d.enCours + ' document(s) en cours de vérification par le cabinet.' : '.') + '</div>';
+  }
+  return '<div class="mq-titre">Il nous manque encore ' + d.manques.length + ' élément' + (d.manques.length > 1 ? 's' : '') + '</div>' +
+    d.manques.map(function(m){
+      var action = m.type === 'piece'
+        ? '<label class="dem-pdf" style="cursor:pointer;white-space:nowrap;">📎 Déposer' +
+          '<input type="file" multiple accept="image/*,.pdf" style="display:none;" ' +
+          'onchange="deposerManque(\'' + esc(d.code) + '\', \'' + esc(m.cle) + '\', \'' + esc(m.personne) + '\', this)"></label>'
+        : '<button class="dem-pdf" style="white-space:nowrap;" onclick="demarcheFaite(\'' + esc(d.code) + '\', ' + m.ligne + ', this)">✓ C\'est fait</button>';
+      return '<div class="mq-lig"><span>' + (m.type === 'piece' ? '📄' : '📌') + '</span>' +
+        '<div class="mq-lib">' + esc(m.libelle) + (m.personne ? ' — <b>' + esc(m.personne) + '</b>' : '') +
+        (m.aide ? '<div class="mq-aide">' + esc(m.aide) + '</div>' : '') + '</div>' + action +
+        '<div class="mq-msg"></div></div>';
+    }).join('');
+}
+
+function deposerManque(code, cle, personne, input) {
+  var lig = input.closest('.mq-lig');
+  var msg = lig.querySelector('.mq-msg');
+  var fichiers = Array.from(input.files || []);
+  if (!fichiers.length) return;
+  var refus = refusEnvoi(fichiers);
+  if (refus) { msg.textContent = '⚠ ' + refus; msg.style.color = '#c0392b'; input.value = ''; return; }
+  msg.textContent = '⏳ Envoi…'; msg.style.color = '#5a6070';
+  lireFichiers(fichiers).then(function(payload){
+    payload.forEach(function(f){ f.pour = { cle: cle, personne: personne }; });
+    api({ action:'ajouterMesPiecesDossier', email:SESSION.email, token:SESSION.token, code:code, fichiers:payload }, function(res){
+      input.value = '';
+      if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'Envoi impossible.'); msg.style.color = '#c0392b'; return; }
+      msg.textContent = '✓ Reçu, merci. Le cabinet vérifie.'; msg.style.color = '#2e7d32';
+      chargerManques();
+    });
+  }).catch(function(e){ msg.textContent = '⚠ Lecture impossible : ' + e.message; msg.style.color = '#c0392b'; });
+}
+
+function demarcheFaite(code, ligne, btn) {
+  var msg = btn.closest('.mq-lig').querySelector('.mq-msg');
+  btn.disabled = true;
+  api({ action:'maDemarcheFaite', email:SESSION.email, token:SESSION.token, code:code, ligne:ligne }, function(res){
+    if (!res || !res.ok) { btn.disabled = false; msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.style.color = '#c0392b'; return; }
+    chargerManques();
+  });
+}
+
 function telechargerRecap(id, btn) {
   var avant = btn.textContent;
   btn.disabled = true; btn.textContent = 'Préparation…';
@@ -523,7 +592,8 @@ function rendre(){
               return '<option' + (o===d[c[0]] ? ' selected':'') + '>' + esc(o) + '</option>'; }).join('') + '</select>'
           : '<input type="' + c[1] + '" id="' + id + '" value="' + v + '">';
         return '<div class="f' + (c[2]==='gc2' ? ' gc2':'') + '"><label for="' + id + '">' + esc(c[0]) + '</label>' + champ + '</div>';
-      }).join('') + '</div></div>';
+      }).join('') + '</div>' +
+      '<div class="manques" id="mq-' + n + '" data-code="' + esc(d['Code dossier'] || '') + '" hidden></div></div>';
   }).join('');
   $('etat').textContent = DOSSIERS.length + ' dossier' + (DOSSIERS.length>1?'s':'') + ' rattaché' + (DOSSIERS.length>1?'s':'') + ' à ' + SESSION.email;
 }
