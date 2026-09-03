@@ -149,9 +149,7 @@ function chargerDossiers() {
     DATA.iLigne = res.colonnes.length; // n° de ligne ajouté en fin
     remplirFiltres();
     rendre();
-    if (res.avertissement) {
-      $('liste').innerHTML = '<div class="alerte">' + esc(res.avertissement) + '</div>';
-    }
+    $('avis').innerHTML = res.avertissement ? '<div class="alerte">⚠ ' + esc(res.avertissement) + '</div>' : '';
   });
 }
 
