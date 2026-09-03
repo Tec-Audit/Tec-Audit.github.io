@@ -52,7 +52,7 @@ function login() {
       $('app').style.display = 'flex';
       $('user-nom').textContent = res.nom;
       $('user-role').textContent = res.role === 'associe' ? 'Associé' : 'Collaborateur';
-      if (res.role === 'associe') $('tab-entrees').style.display = '';
+      if (res.role === 'associe') $('tab-entrees').style.display = ''; $('tab-pennylane').style.display = '';
       chargerDossiers();
     } else {
       btn.disabled = false;
@@ -201,7 +201,7 @@ function lignesFiltrees() {
 
 // ── Rendu ────────────────────────────────────────────────────
 function rendre() {
-  if (VUE === 'entrees') return;
+  if (VUE === 'entrees' || VUE === 'pennylane') return;
   var L = lignesFiltrees();
   var contacts = {};
   L.forEach(function (l) { contacts[val(l, 'Email') || '(sans email)'] = 1; });
@@ -910,10 +910,11 @@ function ouvrirLigne(id) {
 
 function changerVue(v) {
   VUE = v;
-  var horsDossiers = (v === 'entrees');
+  var horsDossiers = (v === 'entrees' || v === 'pennylane');
   document.querySelector('.apercu').style.display = horsDossiers ? 'none' : '';
   document.querySelector('.bar').style.display = horsDossiers ? 'none' : '';
   if (v === 'entrees') { chargerEntrees(); }
+  if (v === 'pennylane') { chargerPennylane('etat'); }
   document.querySelectorAll('.tab').forEach(function (t) {
     var actif = t.dataset.vue === v;
     t.classList.toggle('active', actif);
@@ -924,6 +925,75 @@ function changerVue(v) {
 
 // ── Pipeline « Nouveaux dossiers » (associés) ────────────────
 var ENTREES = { entrees: [], signataires: [] };
+
+// ── Pennylane : rapprochement du portefeuille avec la base ────
+// La consultation lit le cache du classeur ; seul « Rapprocher maintenant »
+// interroge l'API. Réservé aux associés, comme le pipeline.
+function chargerPennylane(mode) {
+  document.querySelectorAll('.tab').forEach(function (t) {
+    var actif = t.dataset.vue === 'pennylane';
+    t.classList.toggle('active', actif);
+    t.setAttribute('aria-selected', actif ? 'true' : 'false');
+  });
+  $('liste').innerHTML = '<p class="vide">' + (mode === 'rapprocher'
+    ? 'Interrogation de Pennylane et rapprochement par SIREN… (quelques secondes)' : 'Chargement…') + '</p>';
+  api({ action: 'adminPennylane', email: SESSION.email, token: SESSION.token, mode: mode }, function (res) {
+    if (!res || !res.ok) {
+      $('liste').innerHTML = '<div class="alerte">⚠ ' + esc((res && res.error) || 'Erreur') + '</div>' +
+        '<div class="pl-tete"><span></span><button class="btn-envoyer" onclick="chargerPennylane(\'rapprocher\')">🔄 Réessayer</button></div>';
+      return;
+    }
+    rendrePennylane(res);
+  });
+}
+
+function tablePennylane(colonnes, lignes) {
+  return '<table class="pl-table"><tr>' + colonnes.map(function (c) { return '<th>' + esc(c[0]) + '</th>'; }).join('') + '</tr>' +
+    lignes.map(function (l) {
+      return '<tr>' + colonnes.map(function (c) {
+        var v = l[c[1]] || '';
+        return '<td' + (c[1] === 'siren' ? ' class="pl-siren"' : '') + '>' + esc(v) + '</td>';
+      }).join('') + '</tr>';
+    }).join('') + '</table>';
+}
+
+function rendrePennylane(r) {
+  var carte = function (n, l) { return '<div class="pl-carte"><b>' + n + '</b><span>' + l + '</span></div>'; };
+  var h = '<div class="pl-tete"><div>' +
+    (r.quand ? 'Dernier rapprochement : <b>' + esc(r.quand) + '</b>' : 'Aucun rapprochement effectué pour le moment — lancez-en un.') +
+    (r.total ? ' · portefeuille Pennylane : ' + r.total + ' dossiers' : '') + '</div>' +
+    '<button class="btn-envoyer" onclick="chargerPennylane(\'rapprocher\')">🔄 Rapprocher maintenant</button></div>';
+
+  h += '<div class="pl-cartes">' +
+    carte(r.actifs, 'dossiers actifs en base') +
+    carte(r.rapproches, 'rapprochés par SIREN') +
+    carte(r.absents.length, 'à créer ou transférer') +
+    carte(r.orphelins.length, 'dans Pennylane, absents de la base') + '</div>';
+
+  if (r.absents.length) {
+    h += '<div class="pl-sec"><h3>À créer ou à transférer dans Pennylane (' + r.absents.length + ')</h3>' +
+      '<p>Dossiers actifs dont le SIREN n\'est pas dans le portefeuille. Si la société est déjà tenue sur Pennylane par ' +
+      'un autre cabinet : Production → Demandes de transfert → Créer un nouveau dossier client → saisir le SIREN → ' +
+      '« Demande de transfert ». Sinon, création classique.</p>' +
+      tablePennylane([['Code', 'code'], ['Dénomination', 'denomination'], ['SIREN', 'siren'],
+                      ['Collaborateur', 'collaborateur'], ['Associé', 'associe']], r.absents) + '</div>';
+  }
+  if (r.sansSiren.length) {
+    h += '<div class="pl-sec"><h3>Sans SIREN exploitable (' + r.sansSiren.length + ')</h3>' +
+      '<p>Impossible à rapprocher tant que le SIRET n\'est pas renseigné dans la base — sociétés en cours de constitution, ou fiches à compléter.</p>' +
+      tablePennylane([['Code', 'code'], ['Dénomination', 'denomination'], ['Collaborateur', 'collaborateur']], r.sansSiren) + '</div>';
+  }
+  if (r.orphelins.length) {
+    h += '<div class="pl-sec"><h3>Dans Pennylane, absents de la base (' + r.orphelins.length + ')</h3>' +
+      '<p>Sociétés du portefeuille dont le SIREN ne correspond à aucun dossier actif : dossiers sortis encore présents dans Pennylane, ' +
+      'ou dossiers à créer dans la base du portail.</p>' +
+      tablePennylane([['Nom Pennylane', 'name'], ['SIREN', 'siren'], ['Code client', 'client_code']], r.orphelins) + '</div>';
+  }
+  if (r.quand && !r.absents.length && !r.orphelins.length && !r.sansSiren.length) {
+    h += '<div class="pl-sec"><p>✓ Base et portefeuille Pennylane parfaitement alignés.</p></div>';
+  }
+  $('liste').innerHTML = h;
+}
 
 function chargerEntrees() {
   document.querySelectorAll('.tab').forEach(function (t) {
