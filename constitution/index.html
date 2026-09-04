@@ -443,6 +443,7 @@
             <option value="SAS">SAS — Société par Actions Simplifiée</option>
             <option value="SARL">SARL — Société à Responsabilité Limitée</option>
             <option value="SCI">SCI — Société Civile Immobilière</option>
+            <option value="EI">Entreprise individuelle</option>
           </select>
         </div>
       </div>
@@ -566,6 +567,19 @@
         </div>
       </div>
       <div id="assoc-container"></div>
+      <div id="ei-bloc" style="display:none" class="sub">
+        <div class="sub-title">Entreprise individuelle — options</div>
+        <div class="grid g2">
+          <div class="field"><label>Régime fiscal</label>
+            <select id="ei-regime"><option value="micro">Micro-entreprise</option><option value="reel-simplifie">Réel simplifié</option><option value="reel-normal">Réel normal</option></select></div>
+          <div class="field"><label>Option pour l'impôt sur les sociétés</label>
+            <select id="ei-is"><option value="non">Non (impôt sur le revenu)</option><option value="oui">Oui</option></select></div>
+          <div class="field"><label>Activité réglementée&nbsp;?</label>
+            <select id="activite-reglementee"><option value="non">Non</option><option value="oui">Oui (artisanat, santé, transport, immobilier…)</option></select></div>
+          <div class="field"><label>Si oui, laquelle</label><input type="text" id="ei-activite-detail" placeholder="Ex : coiffure, VTC, agent immobilier"></div>
+        </div>
+        <div class="notice">Marié(e) sous un régime de communauté&nbsp;? Renseignez votre situation familiale ci-dessus : une attestation d'information du conjoint vous sera demandée.</div>
+      </div>
       <div id="capital-error" style="display:none;color:#c0392b;font-size:13px;margin-bottom:12px;padding:10px 14px;background:#fdecea;border-radius:3px;border-left:3px solid #c0392b;"></div>
       <div class="notice">
       </div>
@@ -617,21 +631,8 @@
         </div>
       </div>
 
+      <ul class="piece-list" id="pieces-personnes"></ul>
       <ul class="piece-list">
-        <li class="piece-item piece-upload">
-          <div class="piece-label">
-            <span class="piece-icon">&#128196;</span>
-            <div>
-              <strong>Copies CI / passeport</strong> &#8212; tous les associ&#233;s
-              <div class="piece-hint">Recto-verso &#8212; plusieurs fichiers possibles</div>
-            </div>
-          </div>
-          <label class="upload-btn" for="file-p1">
-            <span id="p1-text">Choisir les fichiers</span>
-            <input type="file" id="file-p1" name="CI_passeport_associes" multiple accept="image/*,.pdf" onchange="updateFileLabel('p1')">
-          </label>
-          <div class="file-names" id="p1-names"></div>
-        </li>
         <li class="piece-item piece-upload">
           <div class="piece-label">
             <span class="piece-icon">&#127973;</span>
@@ -687,6 +688,13 @@
             <input type="file" id="file-p5" name="avis_france_travail" multiple accept="image/*,.pdf" onchange="updateFileLabel('p5')">
           </label>
           <div class="file-names" id="p5-names"></div>
+        </li>
+        <li class="piece-item piece-upload" id="piece-diplome" style="display:none;">
+          <div class="piece-label"><span class="piece-icon">&#127891;</span><div><strong>Dipl&ocirc;me ou autorisation d'exercer</strong>
+            <div class="piece-hint">Activit&eacute; r&eacute;glement&eacute;e</div></div></div>
+          <label class="upload-btn" for="file-diplome"><span id="diplome-text">Choisir le fichier</span>
+            <input type="file" id="file-diplome" multiple accept="image/*,.pdf" onchange="updateFileLabel('diplome')"></label>
+          <div class="file-names" id="diplome-names"></div>
         </li>
       </ul>
 
@@ -763,7 +771,7 @@ function afficherChargement(actif) {
 // ── Navigation ──────────────────────────────────────────────────
 
 function goTo(n) {
-  if (n === 3) { try { updateAcrePieceVisibility(); } catch(e) {} }
+  if (n === 3) { try { buildPiecesPersonnes(); updateAcrePieceVisibility(); } catch(e) {} }
   document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
   var el = document.getElementById('sec-' + n);
   if (el) el.classList.add('active');
@@ -777,11 +785,28 @@ function goTo(n) {
 
 var isSAS = true;
 
+// Affichages qui dépendent de la forme, sans rien régénérer (utilisé aussi
+// après restauration d'un brouillon)
+function appliquerAffichagesForme() {
+  var ei = document.getElementById('forme').value === 'EI';
+  var capField = document.getElementById('capital') && document.getElementById('capital').closest('.field');
+  if (capField) capField.style.display = ei ? 'none' : '';
+  var nbA = document.getElementById('nb-assoc');
+  if (nbA && nbA.closest('.field')) nbA.closest('.field').style.display = ei ? 'none' : '';
+  var tabs = document.querySelectorAll('.step-tab');
+  if (tabs[1]) tabs[1].textContent = ei ? 'Entrepreneur' : 'Associés';
+  var eiBloc = document.getElementById('ei-bloc');
+  if (eiBloc) eiBloc.style.display = ei ? '' : 'none';
+}
+
 function onFormeChange() {
   var f = document.getElementById('forme').value;
   isSAS = (f === 'SAS');
+  var nbA = document.getElementById('nb-assoc');
+  if (f === 'EI' && nbA && nbA.value !== '1') { nbA.value = '1'; updateAssocCount(1); }
+  else if (f === 'EI') { updateAssocCount(1); }
+  appliquerAffichagesForme();
   updateManBlocks();
-  // Build email to avoid Cloudflare obfuscation
   (function(){
     var el = document.getElementById('rgpd-email');
     if (el) el.textContent = ['contact','tec-audit.fr'].join('@');
@@ -885,8 +910,22 @@ function makeAssocBlock(idx) {
   var p = 'a' + idx;
   var html = '';
   html += '<div class="assoc-card" id="assoc-card-' + idx + '">';
-  html += '<div class="assoc-header"><div class="assoc-badge">' + n + '</div><span>Associ\u00e9 ' + n + '</span></div>';
+  html += '<div class="assoc-header"><div class="assoc-badge">' + n + '</div><span>' + (((document.getElementById('forme') || {}).value === 'EI') ? 'L\u2019entrepreneur' : 'Associ\u00e9 ' + n) + '</span></div>';
   html += '<div class="assoc-body">';
+  var eiBloc = (document.getElementById('forme') || {}).value === 'EI';
+  html += '<div class="grid g2">';
+  html += '<div class="field"' + (eiBloc ? ' style="display:none"' : '') + '><label>Cet associé est</label><select id="' + p + '-type" onchange="onAssocTypeChange(' + idx + ')">' +
+          '<option value="physique">une personne physique</option><option value="morale">une société (holding, SCI…)</option></select></div>';
+  html += '<div class="field"' + (eiBloc ? ' style="display:none"' : '') + '><label>Détention du capital (%)</label><input type="number" id="' + p + '-pct" min="0" max="100" step="0.01" placeholder="Ex : 50" oninput="validatePct(this);checkCapitalTotal()"></div>';
+  html += '</div>';
+  html += '<div id="' + p + '-morale" style="display:none"><div class="grid g2">';
+  html += '<div class="field"><label>Dénomination de la société</label><input type="text" id="' + p + '-denomination" oninput="refreshMandataireList()"></div>';
+  html += '<div class="field"><label>SIREN</label><input type="text" id="' + p + '-siren" maxlength="11" placeholder="123 456 789"></div>';
+  html += '<div class="field"><label>Nom du représentant légal</label><input type="text" id="' + p + '-rep-nom" oninput="refreshMandataireList()"></div>';
+  html += '<div class="field"><label>Prénom du représentant légal</label><input type="text" id="' + p + '-rep-prenom" oninput="refreshMandataireList()"></div>';
+  html += '<div class="field gc2" style="font-size:12.5px;color:#5a6070;">Pièces attendues pour cet associé : extrait Kbis de moins de 3 mois, pièce d’identité du représentant, extrait du registre des bénéficiaires effectifs.</div>';
+  html += '</div></div>';
+  html += '<div id="' + p + '-physique">';
   html += '<div class="grid g2">';
   html += '<div class="field"><label>Nom</label><input type="text" id="' + p + '-nom" oninput="refreshMandataireList()"></div>';
   html += '<div class="field"><label>Pr\u00e9nom</label><input type="text" id="' + p + '-prenom" oninput="refreshMandataireList()"></div>';
@@ -903,7 +942,6 @@ function makeAssocBlock(idx) {
   html += '<input type="text" id="' + p + '-ss" placeholder="1 00 00 00 000 000 00" oninput="onSSChange(this.id)">';
   html += '<div class="ss-feedback" id="' + p + '-ss-err" style="display:none;font-size:11px;margin-top:3px;padding:4px 8px;border-radius:3px;"></div>';
   html += '</div>';
-  html += '<div class="field"><label>D\u00e9tention du capital (%)</label><input type="number" id="' + p + '-pct" min="0" max="100" step="0.01" placeholder="Ex : 50" oninput="validatePct(this);checkCapitalTotal()"></div>';
   html += '</div>';
   html += '<hr class="divider">';
   html += '<div class="sub"><div class="sub-title">Situation familiale</div><div class="grid g2">';
@@ -950,7 +988,8 @@ function makeAssocBlock(idx) {
   html += '</div>';
   html += '</div></div>';
   html += '</div></div>';
-  html += '</div></div>';
+  html += '</div>';          // fin -physique
+  html += '</div></div>';    // assoc-body, assoc-card
   return html;
 }
 
@@ -963,6 +1002,19 @@ function updateAssocCount(n) {
   refreshMandataireList();
 }
 
+function onAssocTypeChange(idx) {
+  afficherTypeAssocie(idx);
+  refreshMandataireList();
+}
+// Affichage seul (sans régénérer les mandataires) : utilisé aussi après restauration
+function afficherTypeAssocie(idx) {
+  var p = 'a' + idx, t = document.getElementById(p + '-type');
+  if (!t) return;
+  var morale = t.value === 'morale';
+  document.getElementById(p + '-morale').style.display = morale ? '' : 'none';
+  document.getElementById(p + '-physique').style.display = morale ? 'none' : '';
+}
+
 document.getElementById('nb-assoc').addEventListener('change', function(){ updateAssocCount(this.value); });
 updateAssocCount(1);
 
@@ -972,18 +1024,28 @@ function makeManBlock(idx, nbAssoc) {
   var p = 'man' + idx;
   var forme = document.getElementById('forme') ? document.getElementById('forme').value : 'SAS';
   var isSARLlocal = (forme === 'SARL' || forme === 'SCI');
-  var fonctionOpts = isSARLlocal
-    ? '<option value="gerant">G\u00e9rant(e)</option>'
-    : '<option value="president">Pr\u00e9sident(e)</option><option value="dg">Directeur(trice) G\u00e9n\u00e9ral(e)</option>';
+  var fonctionOpts = forme === 'EI'
+    ? '<option value="entrepreneur">Entrepreneur individuel</option>'
+    : isSARLlocal
+    ? '<option value="gerant">Gérant(e)</option>'
+    : '<option value="president">Président(e)</option><option value="dg">Directeur(trice) Général(e)</option>';
 
   // Build assoc options
   var assocOpts = '<option value="">\u2014 S\u00e9lectionner \u2014</option>';
   for (var i = 0; i < nbAssoc; i++) {
     var nomEl = document.getElementById('a' + i + '-nom');
     var preEl = document.getElementById('a' + i + '-prenom');
-    var nom = nomEl ? nomEl.value.trim() : '';
-    var pre = preEl ? preEl.value.trim() : '';
-    var lbl = [nom, pre].filter(Boolean).join(' ') || ('Associ\u00e9 ' + (i + 1));
+    var typeEl = document.getElementById('a' + i + '-type');
+    var lbl;
+    if (typeEl && typeEl.value === 'morale') {
+      var den = ((document.getElementById('a' + i + '-denomination') || {}).value || '').trim() || ('Société associée ' + (i + 1));
+      var rep = [(document.getElementById('a' + i + '-rep-prenom') || {}).value, (document.getElementById('a' + i + '-rep-nom') || {}).value].filter(Boolean).join(' ');
+      lbl = den + (rep ? ' (représentée par ' + rep + ')' : '');
+    } else {
+      var nom = nomEl ? nomEl.value.trim() : '';
+      var pre = preEl ? preEl.value.trim() : '';
+      lbl = [nom, pre].filter(Boolean).join(' ') || ('Associé ' + (i + 1));
+    }
     assocOpts += '<option value="' + i + '">' + lbl + '</option>';
   }
 
@@ -1178,6 +1240,9 @@ function updateManBlocks() {
     } else if (forme === 'SCI') {
       noticeEl.innerHTML = '<strong>SCI :</strong> Il peut y avoir un ou plusieurs gérants, associés ou non associés.';
       noticeEl.style.display = 'block';
+    } else if (forme === 'EI') {
+      noticeEl.innerHTML = '<strong>Entreprise individuelle :</strong> vous êtes le représentant légal. Cette étape sert à vérifier votre éligibilité à l’ACRE.';
+      noticeEl.style.display = 'block';
     } else {
       noticeEl.innerHTML = '<strong>SAS :</strong> Il doit y avoir <strong>un Président(e) obligatoirement</strong> et, éventuellement, un ou plusieurs Directeurs Généraux.';
       noticeEl.style.display = 'block';
@@ -1189,6 +1254,16 @@ function updateManBlocks() {
     var div = document.createElement('div');
     div.innerHTML = makeManBlock(i, nbAssoc);
     container.appendChild(div);
+  }
+  // Entreprise individuelle : un seul « mandataire », l'entrepreneur lui-même
+  var nbM = document.getElementById('nb-man');
+  if (forme === 'EI') {
+    if (nbM) { nbM.value = '1'; if (nbM.closest('.field')) nbM.closest('.field').style.display = 'none'; }
+    var q = document.getElementById('man0-qualite'), sel0 = document.getElementById('man0-assoc-select');
+    if (q) { q.value = 'associe'; if (q.closest('.field')) q.closest('.field').style.display = 'none'; }
+    if (sel0) { sel0.value = '0'; if (sel0.closest('.field')) sel0.closest('.field').style.display = 'none'; onManAssocChange(0); }
+  } else if (nbM && nbM.closest('.field')) {
+    nbM.closest('.field').style.display = '';
   }
   checkPresidentUnique();
 }
@@ -1660,6 +1735,7 @@ function goToSocieteNext() {
     {id:'cloture1',     label:'Date de clôture du 1er exercice'},
     {id:'regime-fiscal',label:'Régime fiscal'}
   ];
+  if (document.getElementById('forme').value === 'EI') fields = fields.filter(function (f) { return f.id !== 'capital'; });
 
   fields.forEach(function(f) {
     var el = document.getElementById(f.id);
@@ -1709,6 +1785,7 @@ function goToSocieteNext() {
 
 // ── Validation Associés (sec-1) ───────────────────────────────
 function goToAssocNext() {
+  var eiForm = document.getElementById('forme').value === 'EI';
   // Check capital total first
   var nb = parseInt(document.getElementById('nb-assoc').value) || 1;
   var total = 0;
@@ -1724,19 +1801,18 @@ function goToAssocNext() {
   for (var i = 0; i < nb; i++) {
     var p = 'a' + i;
     var label = 'Associé ' + (i+1);
-    var reqFields = [
-      {id: p+'-nom', l:'Nom'},
-      {id: p+'-prenom', l:'Prénom'},
-      {id: p+'-naiss', l:'Date de naissance'},
-      {id: p+'-lieu', l:'Lieu de naissance'},
-      {id: p+'-nat', l:'Nationalité'},
-      {id: p+'-adresse', l:'Adresse'},
-      {id: p+'-cp', l:'Code postal'},
-      {id: p+'-ville', l:'Ville'},
-      {id: p+'-tel', l:'Téléphone'},
-      {id: p+'-email', l:'Email'},
+    var morale = document.getElementById(p + '-type') && document.getElementById(p + '-type').value === 'morale';
+    var reqFields = morale ? [
+      {id: p+'-denomination', l:'Dénomination'}, {id: p+'-siren', l:'SIREN'},
+      {id: p+'-rep-nom', l:'Nom du représentant'}, {id: p+'-rep-prenom', l:'Prénom du représentant'},
       {id: p+'-pct', l:'Capital détenu (%)'}
+    ] : [
+      {id: p+'-nom', l:'Nom'}, {id: p+'-prenom', l:'Prénom'}, {id: p+'-naiss', l:'Date de naissance'},
+      {id: p+'-lieu', l:'Lieu de naissance'}, {id: p+'-nat', l:'Nationalité'}, {id: p+'-adresse', l:'Adresse'},
+      {id: p+'-cp', l:'Code postal'}, {id: p+'-ville', l:'Ville'}, {id: p+'-tel', l:'Téléphone'},
+      {id: p+'-email', l:'Email'}, {id: p+'-pct', l:'Capital détenu (%)'}
     ];
+    if (eiForm) reqFields = reqFields.filter(function (f) { return f.id !== p + '-pct'; });
     var missing = [];
     reqFields.forEach(function(f) {
       var el = document.getElementById(f.id);
@@ -1745,7 +1821,7 @@ function goToAssocNext() {
       if (empty) missing.push(f.l);
     });
     // Check sit radio
-    var sitChecked = document.querySelector('input[name="'+p+'-sit"]:checked');
+    var sitChecked = morale ? true : document.querySelector('input[name="'+p+'-sit"]:checked');
     var sitCard = document.getElementById('assoc-card-' + i);
     if (!sitChecked) {
       missing.push('Situation familiale');
@@ -1796,8 +1872,8 @@ function goToAssocNext() {
     if (missing.length > 0) assocErrors.push(label + ' : ' + missing.join(', '));
   }
 
-  // Capital total
-  if (Math.abs(total - 100) > 0.01) {
+  // Capital total (sans objet pour une entreprise individuelle)
+  if (!eiForm && Math.abs(total - 100) > 0.01) {
     assocErrors.push('La somme des parts de capital doit être égale à 100\u00a0% (actuellement\u00a0: ' + total.toFixed(2) + '\u00a0%)');
     if (errEl) {
       errEl.innerHTML = '\u26a0 La somme des parts de capital est de <strong>' + total.toFixed(2) + '\u00a0%</strong> — doit être <strong>100\u00a0%</strong>';
@@ -1856,7 +1932,15 @@ function buildSummary() {
       var adr = v('a' + i + '-adresse');
       var cp = v('a' + i + '-cp');
       var vl = v('a' + i + '-ville');
-      assocHtml += sec('Associé ' + (i + 1));
+      var typeA = document.getElementById('a' + i + '-type');
+      if (typeA && typeA.value === 'morale') {
+        assocHtml += sec('Associé ' + (i + 1) + ' — société');
+        assocHtml += row('Dénomination / SIREN', v('a' + i + '-denomination') + ' — ' + v('a' + i + '-siren'));
+        assocHtml += row('Représentant légal', v('a' + i + '-rep-prenom') + ' ' + v('a' + i + '-rep-nom'));
+        assocHtml += row('Capital détenu', pct !== '—' ? pct + ' %' : '—');
+        continue;
+      }
+      assocHtml += sec(forme === 'EI' ? 'L\'entrepreneur' : 'Associé ' + (i + 1));
       assocHtml += row('Nom / Prénom', nom + ' ' + prenom);
       assocHtml += row('Capital détenu', pct !== '—' ? pct + ' %' : '—');
       assocHtml += row('Adresse', adr + (cp !== '—' ? ', ' + cp : '') + (vl !== '—' ? ' ' + vl : ''));
@@ -1898,13 +1982,7 @@ function buildSummary() {
     }
 
     var forme = document.getElementById('forme').value;
-      var filesPieces = [
-      {id:'file-p1', label:'CI / passeport associés'},
-      {id:'file-p2', label:'Attestation Vitale'},
-      {id:'file-p3', label:'Justificatif de domicile'},
-      {id:'file-p4', label:'Contrat de domiciliation'},
-      {id:'file-p5', label:'Avis de situation France Travail'}
-    ];
+      var filesPieces = listeFichiers().map(function (p) { return { id: 'file-' + p.id, label: p.label }; });
 
     var html = '<table class="summary-table">';
     html += sec('La Société');
@@ -1913,6 +1991,7 @@ function buildSummary() {
     html += row('Objet social', v('objet'));
     html += row('Capital social', v('capital') !== '—' ? v('capital') + ' €' : '—');
     html += row('Mois de clôture', v('cloture'));
+    if (forme === 'EI') { html += row('Régime fiscal', v('ei-regime')) + row('Option IS', v('ei-is')) + row('Activité réglementée', v('activite-reglementee') + (v('ei-activite-detail') !== '—' ? ' — ' + v('ei-activite-detail') : '')); }
     var adSiege = v('adresse');
     var cpSiege = v('cp');
     var vlSiege = v('ville');
@@ -1950,6 +2029,63 @@ function updateFileLabel(pid) {
     sp.textContent = '✓ ' + input.files[i].name;
     namesDiv.appendChild(sp);
   }
+}
+
+// Pièces attendues, calculées depuis les personnes saisies. Chaque entrée :
+// { id, tag, label } — tag = « clé|Personne », l'étiquette que le backend
+// lit pour rattacher le fichier à la bonne ligne de checklist.
+function personnesFormulaire() {
+  var out = [], nb = parseInt(document.getElementById('nb-assoc').value) || 1;
+  var v = function (id) { var e = document.getElementById(id); return e ? e.value.trim() : ''; };
+  for (var i = 0; i < nb; i++) {
+    if (v('a' + i + '-type') === 'morale') {
+      var den = v('a' + i + '-denomination') || ('Société associée ' + (i + 1));
+      out.push({ id: 'kbis-a' + i, tag: 'kbis-associe|' + den, label: 'Extrait Kbis (moins de 3 mois) — ' + den });
+      out.push({ id: 'cnirep-a' + i, tag: 'cni-representant|' + den, label: 'Pièce d’identité du représentant légal — ' + den });
+      out.push({ id: 'rbe-a' + i, tag: 'rbe-associe|' + den, label: 'Extrait du registre des bénéficiaires effectifs — ' + den });
+    } else {
+      var nom = [v('a' + i + '-prenom'), v('a' + i + '-nom')].filter(Boolean).join(' ') || ('Associé ' + (i + 1));
+      out.push({ id: 'cni-a' + i, tag: 'cni|' + nom, label: 'Pièce d’identité (recto-verso ou passeport) — ' + nom });
+    }
+  }
+  var nbM = parseInt(document.getElementById('nb-man') ? document.getElementById('nb-man').value : '1') || 1;
+  for (var m = 0; m < nbM; m++) {
+    if (v('man' + m + '-qualite') !== 'non-associe') continue;
+    var nomM = [v('man' + m + '-prenom'), v('man' + m + '-nom')].filter(Boolean).join(' ') || ('Mandataire ' + (m + 1));
+    out.push({ id: 'cni-man' + m, tag: 'cni|' + nomM, label: 'Pièce d’identité (recto-verso ou passeport) — ' + nomM });
+  }
+  return out;
+}
+
+function buildPiecesPersonnes() {
+  var zone = document.getElementById('pieces-personnes');
+  if (!zone) return;
+  var liste = personnesFormulaire();
+  var signature = liste.map(function (p) { return p.id + '|' + p.tag; }).join(';');
+  if (zone.dataset.signature !== signature) {          // fichiers déjà choisis conservés si rien n'a changé
+    zone.dataset.signature = signature;
+    zone.innerHTML = liste.map(function (p) {
+      return '<li class="piece-item piece-upload"><div class="piece-label"><span class="piece-icon">&#128196;</span>' +
+        '<div><strong>' + p.label + '</strong><div class="piece-hint">Un ou plusieurs fichiers</div></div></div>' +
+        '<label class="upload-btn" for="file-' + p.id + '"><span id="' + p.id + '-text">Choisir les fichiers</span>' +
+        '<input type="file" id="file-' + p.id + '" multiple accept="image/*,.pdf" onchange="updateFileLabel(\'' + p.id + '\')"></label>' +
+        '<div class="file-names" id="' + p.id + '-names"></div></li>';
+    }).join('');
+  }
+  var dip = document.getElementById('piece-diplome');
+  if (dip) dip.style.display = ((document.getElementById('activite-reglementee') || {}).value === 'oui' && document.getElementById('forme').value === 'EI') ? '' : 'none';
+}
+
+// Toutes les pièces du formulaire, dans l'ordre d'affichage
+function listeFichiers() {
+  var fixes = [
+    { id: 'p2', tag: 'vitale', label: 'Attestation Vitale' },
+    { id: 'p3', tag: 'justif-domicile', label: 'Justificatif de domicile' },
+    { id: 'p4', tag: 'contrat-domiciliation', label: 'Bail / contrat de domiciliation' },
+    { id: 'p5', tag: 'france-travail', label: 'Avis de situation France Travail' },
+    { id: 'diplome', tag: 'diplome', label: 'Diplôme ou autorisation d’exercer' }
+  ];
+  return personnesFormulaire().concat(fixes);
 }
 
 function validerAvecRGPD() {
@@ -2042,7 +2178,15 @@ function generateRecapPDF() {
   var nb = parseInt((document.getElementById('nb-assoc')||{value:'1'}).value) || 1;
   for (var i = 0; i < nb; i++) {
     var p = 'a' + i;
-    drawSection('Associ\u00e9 ' + (i + 1));
+    var typeP = document.getElementById(p + '-type');
+    if (typeP && typeP.value === 'morale') {
+      drawSection('Associé ' + (i + 1) + ' — société');
+      drawRow('Société', v(p+'-denomination') + ' — SIREN ' + v(p+'-siren'));
+      drawRow('Représentant légal', v(p+'-rep-prenom') + ' ' + v(p+'-rep-nom'));
+      drawRow('Capital détenu', v(p+'-pct') + ' %');
+      continue;
+    }
+    drawSection((document.getElementById('forme') || {}).value === 'EI' ? 'L’entrepreneur' : 'Associé ' + (i + 1));
     drawRow('Nom', v(p+'-nom'));
     drawRow('Pr\u00e9nom', v(p+'-prenom'));
     drawRow('Nom de jeune fille', v(p+'-njf'));
@@ -2141,6 +2285,13 @@ function validerFormulaire() {
   var nb = parseInt(document.getElementById('nb-assoc').value) || 2;
   for (var i = 0; i < nb; i++) {
     var p = 'Associé ' + (i + 1) + ' - ';
+    var typeM = document.getElementById('a' + i + '-type');
+    if (typeM && typeM.value === 'morale') {
+      add(p + 'Société', v('a' + i + '-denomination') + ' — SIREN ' + v('a' + i + '-siren'));
+      add(p + 'Représentant légal', v('a' + i + '-rep-prenom') + ' ' + v('a' + i + '-rep-nom'));
+      add(p + 'Capital', v('a' + i + '-pct') + ' %');
+      continue;
+    }
     add(p + 'Nom', v('a' + i + '-nom'));
     add(p + 'Prénom', v('a' + i + '-prenom'));
     add(p + 'Nom jeune fille', v('a' + i + '-njf'));
@@ -2202,13 +2353,7 @@ function validerFormulaire() {
   })();
 
   // ── Fichiers → base64 ──
-  var fileInputs = [
-    { id: 'file-p1', label: 'CI / Passeport associés' },
-    { id: 'file-p2', label: 'Attestation Vitale' },
-    { id: 'file-p3', label: 'Justificatif de domicile' },
-    { id: 'file-p4', label: 'Bail / contrat de domiciliation' },
-    { id: 'file-p5', label: 'Avis de situation France Travail' }
-  ];
+  var fileInputs = listeFichiers().map(function (p) { return { id: 'file-' + p.id, label: p.tag }; });
 
   var MAX_TOTAL = 20 * 1024 * 1024; // 20 Mo au total
   var totalSize = 0;
@@ -2461,6 +2606,13 @@ function restaurerDossier(data) {
     if (typeof onDomiciliationChange === 'function') onDomiciliationChange();
     if (typeof refreshAcreVerdicts === 'function') refreshAcreVerdicts();
   }, 200);
+  // Affichages qui dépendent des valeurs restaurées (sans régénérer les blocs)
+  try {
+    appliquerAffichagesForme();
+    var nbR = parseInt(document.getElementById('nb-assoc').value) || 1;
+    for (var ri = 0; ri < nbR; ri++) afficherTypeAssocie(ri);
+    if (document.getElementById('forme').value === 'EI') updateManBlocks();
+  } catch (eR) {}
 }
 
 // ── Sauvegarder ───────────────────────────────────────────────

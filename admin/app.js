@@ -1385,6 +1385,8 @@ function carteEntree(e) {
 
   var meta = 'Reçu le ' + esc(e.date) + ' · ' + esc(e.contact || e.email) +
     ' · ' + (e.parcours === 'nouveau-client' ? 'Nouveau client / reprise' : 'Constitution') +
+    (e.pennylane === 'oui' ? ' · <span class="tag warn">déjà sur Pennylane — transfert à demander</span>'
+      : e.pennylane === 'non' ? ' · <span class="tag neutre">dossier Pennylane à créer</span>' : '') +
     (e.codeDossier ? ' · dossier <b>' + esc(e.codeDossier) + '</b>' : '') +
     (e.drive ? ' · <button class="lien-pieces" onclick="voirPieces(\'' + esc(e.drive) + '\', this)">📎 pièces jointes</button>' : '');
 

@@ -297,6 +297,13 @@
         </div>
       </div>
 
+      <div class="sub" id="be-bloc">
+        <div class="sub-title">Bénéficiaires effectifs <span class="note" style="font-weight:400;text-transform:none;">(obligation anti-blanchiment)</span></div>
+        <p class="notice">Les personnes physiques qui détiennent plus de 25&nbsp;% du capital ou des droits de vote, ou qui contrôlent la société. Nous devrons vérifier l'identité de chacune : extrait du registre et pièce d'identité à l'étape Pièces.</p>
+        <div id="be-liste"></div>
+        <button type="button" class="btn btn-secondary" onclick="ajouterBE()">＋ Ajouter un bénéficiaire</button>
+      </div>
+
       <div class="nav">
         <button class="btn btn-secondary" onclick="goTo(0)">‹ Précédent</button>
         <span class="step-count">Étape 2 / 6</span>
@@ -359,6 +366,13 @@
       <div class="grid g2" style="margin-top:16px;">
         <div class="field"><label for="logiciel">Logiciel ou outil comptable actuel <span class="note">(le cas échéant)</span></label>
           <input type="text" id="logiciel" placeholder="Ex : Pennylane, Sage, Excel…"></div>
+        <div class="field gc2"><label>Votre comptabilité actuelle est-elle tenue sur Pennylane&nbsp;?</label>
+          <div class="choices">
+            <label class="choice"><input type="radio" name="pennylane" value="oui"><span>Oui</span></label>
+            <label class="choice"><input type="radio" name="pennylane" value="non"><span>Non</span></label>
+            <label class="choice"><input type="radio" name="pennylane" value="nsp"><span>Je ne sais pas</span></label>
+          </div>
+        </div>
         <div class="field"><label for="date-reprise">À partir de quand souhaitez-vous notre intervention&nbsp;?</label>
           <input type="date" id="date-reprise"></div>
       </div>
@@ -426,6 +440,7 @@
       </div>
 
       <ul class="piece-list" id="pieces"></ul>
+      <ul class="piece-list" id="pieces-be"></ul>
       <div class="notice">Un document vous manque&nbsp;? Envoyez ce que vous avez : le dossier est enregistré et
         vous pourrez nous transmettre le reste par email.</div>
 
@@ -499,24 +514,80 @@ var SESSION = { email: '', nom: '', token: '' };
 var PIECES = [
   { id: 'p1', label: 'Extrait Kbis récent', hint: 'Moins de 3 mois' },
   { id: 'p2', label: 'Statuts à jour', hint: 'Dernière version signée' },
-  { id: 'p3', label: 'Pièce d\'identité du dirigeant', hint: 'CI recto-verso ou passeport' },
+  { id: 'p3', label: 'Pièce d\'identité du dirigeant', hint: 'CI recto-verso ou passeport', tag: function () { return 'cni|' + dirigeantNom(); } },
   { id: 'p4', label: 'RIB de la société', hint: '' },
   { id: 'p5', label: '2 derniers bilans et liasses fiscales', hint: 'Si la société a déjà clôturé un exercice' },
   { id: 'p6', label: 'Dernière balance comptable ou FEC', hint: 'Demandez-les à votre comptable actuel si besoin' },
   { id: 'p7', label: '3 dernières déclarations de TVA', hint: 'Si assujetti' },
-  { id: 'p8', label: 'Éléments sociaux', hint: 'Contrats de travail, dernier bordereau DSN — si salariés' }
+  { id: 'p8', label: 'Éléments sociaux', hint: 'Contrats de travail, dernier bordereau DSN — si salariés' },
+  { id: 'p9', label: 'Extrait du registre des bénéficiaires effectifs', hint: 'Moins de 3 mois — data.inpi.fr', tag: 'rbe' }
 ];
 
+// ── Bénéficiaires effectifs ───────────────────────────────────
+var NB_BE = 0;
+function ajouterBE(prefill, index) {
+  var i = (index === undefined) ? NB_BE : index;
+  if (document.getElementById('be-row-' + i)) return;
+  NB_BE = Math.max(NB_BE, i + 1);
+  var div = document.createElement('div');
+  div.className = 'grid g2'; div.id = 'be-row-' + i; div.style.marginBottom = '6px';
+  var q = function (x) { return String(x || '').replace(/"/g, '&quot;'); };
+  div.innerHTML =
+    '<div class="field"><label for="be' + i + '-nom">Nom</label><input type="text" id="be' + i + '-nom" value="' + q(prefill && prefill.nom) + '"></div>' +
+    '<div class="field"><label for="be' + i + '-prenom">Prénom</label><input type="text" id="be' + i + '-prenom" value="' + q(prefill && prefill.prenom) + '"></div>' +
+    '<div class="field"><label for="be' + i + '-part">Part détenue (%)</label><input type="number" id="be' + i + '-part" min="0" max="100" step="0.01" placeholder="Ex : 60"></div>' +
+    '<div class="field" style="align-self:end;"><button type="button" class="btn btn-secondary" onclick="retirerBE(' + i + ')">Retirer</button></div>';
+  document.getElementById('be-liste').appendChild(div);
+}
+function retirerBE(i) { var r = document.getElementById('be-row-' + i); if (r) r.remove(); }
+
+function dirigeantNom() {
+  var v = function (id) { return ((document.getElementById(id) || {}).value || '').trim(); };
+  return [v('d-prenom'), v('d-nom')].filter(Boolean).join(' ');
+}
+function listeBE() {
+  var out = [], v = function (id) { return ((document.getElementById(id) || {}).value || '').trim(); };
+  for (var i = 0; i < NB_BE; i++) {
+    if (!document.getElementById('be-row-' + i)) continue;
+    var nom = [v('be' + i + '-prenom'), v('be' + i + '-nom')].filter(Boolean).join(' ');
+    if (nom) out.push(nom + (v('be' + i + '-part') ? ' (' + v('be' + i + '-part') + ' %)' : ''));
+  }
+  return out.join(' · ');
+}
+// Une pièce d'identité par bénéficiaire, sauf le dirigeant qui a déjà la sienne
+function piecesBE() {
+  var out = [], v = function (id) { return ((document.getElementById(id) || {}).value || '').trim(); };
+  for (var i = 0; i < NB_BE; i++) {
+    if (!document.getElementById('be-row-' + i)) continue;
+    var nom = [v('be' + i + '-prenom'), v('be' + i + '-nom')].filter(Boolean).join(' ');
+    if (!nom || nom.toLowerCase() === dirigeantNom().toLowerCase()) continue;
+    out.push({ id: 'be' + i, label: 'Pièce d\'identité — ' + nom, hint: 'Bénéficiaire effectif', tag: 'cni|' + nom });
+  }
+  return out;
+}
+function toutesPieces() { return PIECES.concat(piecesBE()); }
+function rendreLigne(p) {
+  return '<li class="piece-item">' +
+    '<div class="piece-label"><span>📄</span><div><strong>' + p.label + '</strong>' +
+    (p.hint ? '<div class="piece-hint">' + p.hint + '</div>' : '') + '</div></div>' +
+    '<label class="upload-btn" for="file-' + p.id + '"><span id="' + p.id + '-text">Choisir les fichiers</span>' +
+    '<input type="file" id="file-' + p.id + '" multiple accept="image/*,.pdf" onchange="updateFileLabel(\'' + p.id + '\')"></label>' +
+    '<div class="file-names" id="' + p.id + '-names"></div></li>';
+}
+function buildPiecesBE() {
+  var zone = document.getElementById('pieces-be');
+  if (!zone) return;
+  var liste = piecesBE(), signature = liste.map(function (p) { return p.id + '|' + p.tag; }).join(';');
+  if (zone.dataset.signature === signature) return;
+  zone.dataset.signature = signature;
+  zone.innerHTML = liste.map(rendreLigne).join('');
+}
+function estEI() { return /individuel|^EI$|EIRL|micro/i.test((document.getElementById('forme') || {}).value || ''); }
+
 document.addEventListener('DOMContentLoaded', function () {
+  ajouterBE();
   var ul = document.getElementById('pieces');
-  ul.innerHTML = PIECES.map(function (p) {
-    return '<li class="piece-item">' +
-      '<div class="piece-label"><span>📄</span><div><strong>' + p.label + '</strong>' +
-      (p.hint ? '<div class="piece-hint">' + p.hint + '</div>' : '') + '</div></div>' +
-      '<label class="upload-btn" for="file-' + p.id + '"><span id="' + p.id + '-text">Choisir les fichiers</span>' +
-      '<input type="file" id="file-' + p.id + '" multiple accept="image/*,.pdf" onchange="updateFileLabel(\'' + p.id + '\')"></label>' +
-      '<div class="file-names" id="' + p.id + '-names"></div></li>';
-  }).join('');
+  ul.innerHTML = PIECES.map(rendreLigne).join('');
 
   var el = document.getElementById('rgpd-email');
   if (el) el.textContent = ['contact', 'tec-audit.fr'].join('@');
@@ -594,6 +665,8 @@ function callScript(payload, callback) {
 //  Navigation
 // ══════════════════════════════════════════════════════════════
 function goTo(n) {
+  if (n === 1) { var bb = document.getElementById('be-bloc'); if (bb) bb.style.display = estEI() ? 'none' : ''; }
+  if (n === 4) buildPiecesBE();
   document.querySelectorAll('.section').forEach(function (s, i) { s.classList.toggle('active', i === n); });
   document.querySelectorAll('.step-tab').forEach(function (t, i) { t.classList.toggle('active', i === n); });
   window.scrollTo({ top: 0 });
@@ -637,6 +710,7 @@ function prefillSiren() {
         set('d-nom', dir.nom || '');
         set('d-prenom', String(dir.prenoms || '').split(/[ ,]+/)[0] || '');
         set('d-fonction', dir.qualite || '');
+        if (!((document.getElementById('be0-nom') || {}).value)) { set('be0-nom', dir.nom || ''); set('be0-prenom', String(dir.prenoms || '').split(/[ ,]+/)[0] || ''); }
       }
       // N° TVA : FR + clé calculée + SIREN
       var cle = (12 + 3 * (parseInt(siren, 10) % 97)) % 97;
@@ -723,6 +797,7 @@ function collecterDossier() {
 
 function restaurerDossier(data) {
   if (!data) return;
+  for (var iBe = 0; data['be' + iBe + '-nom'] !== undefined; iBe++) ajouterBE(null, iBe);
   Object.keys(data).forEach(function (key) {
     if (key.indexOf('radio__') === 0) {
       var radio = document.querySelector('input[type=radio][name="' + key.slice(7) + '"][value="' + data[key] + '"]');
@@ -808,6 +883,7 @@ function buildSummary() {
   html += row('Clôture', v('cloture')) + row('Imposition', v('regime-is')) + row('TVA', v('regime-tva'));
   html += sec('Dirigeant');
   html += row('Identité', v('d-civilite') + ' ' + v('d-prenom') + ' ' + v('d-nom') + ' — ' + v('d-fonction'));
+  if (!estEI()) html += row('Bénéficiaires effectifs', listeBE() || '—');
   html += row('Contact', v('d-tel') + ' · ' + v('d-email'));
   html += sec('Comptabilité actuelle');
   html += row('Tenue par', compta);
@@ -821,7 +897,7 @@ function buildSummary() {
   html += row('Prestations', missionsChoisies().join(' · ') || '—');
   html += row('Rythme', v('m-periodicite')) + row('CA annuel approx.', v('m-ca') !== '—' ? v('m-ca') + ' € HT' : '—');
   html += sec('Pièces jointes');
-  PIECES.forEach(function (p) {
+  toutesPieces().forEach(function (p) {
     var input = document.getElementById('file-' + p.id);
     var n = input && input.files ? input.files.length : 0;
     html += row(p.label, n ? '✓ ' + n + ' fichier' + (n > 1 ? 's' : '') : '<em style="color:#aaa">Aucun</em>');
@@ -863,6 +939,7 @@ function generateRecapPDF() {
   ligne('Imposition', v('regime-is')); ligne('Régime TVA', v('regime-tva'));
   titre('Dirigeant');
   ligne('Identité', v('d-civilite') + ' ' + v('d-prenom') + ' ' + v('d-nom') + ' — ' + v('d-fonction'));
+  if (!estEI()) ligne('Bénéficiaires effectifs', listeBE() || '—');
   ligne('Naissance', v('d-naiss') + ' à ' + v('d-lieu')); ligne('Adresse', v('d-adresse') + ' ' + v('d-cp') + ' ' + v('d-ville'));
   ligne('Contact', v('d-tel') + ' / ' + v('d-email')); ligne('N° SS', v('d-ss'));
   titre('Comptabilité actuelle');
@@ -904,6 +981,8 @@ function validerFormulaire() {
   add('Capital', v('capital')); add('Clôture', v('cloture'));
   add('Imposition', v('regime-is')); add('Régime TVA', v('regime-tva'));
   add('Dirigeant', v('d-civilite') + ' ' + v('d-prenom') + ' ' + v('d-nom') + ' — ' + v('d-fonction'));
+  if (!estEI()) add('Bénéficiaires effectifs', listeBE() || '—');
+  add('Déjà sur Pennylane', rv('pennylane'));
   add('Dirigeant - naissance', v('d-naiss') + ' à ' + v('d-lieu')); add('Dirigeant - nationalité', v('d-nat'));
   add('Dirigeant - adresse', v('d-adresse') + ' ' + v('d-cp') + ' ' + v('d-ville'));
   add('Dirigeant - contact', v('d-tel') + ' / ' + v('d-email')); add('Dirigeant - N° SS', v('d-ss'));
@@ -931,11 +1010,11 @@ function validerFormulaire() {
       r.readAsDataURL(file);
     });
   }
-  PIECES.forEach(function (p) {
+  toutesPieces().forEach(function (p) {
     var input = document.getElementById('file-' + p.id);
     if (input && input.files) for (var k = 0; k < input.files.length; k++) {
       totalSize += input.files[k].size;
-      lectures.push(lireFichier(input.files[k], p.label));
+      lectures.push(lireFichier(input.files[k], typeof p.tag === 'function' ? p.tag() : (p.tag || p.label)));
     }
   });
   if (totalSize > 20 * 1024 * 1024) {
