@@ -1120,6 +1120,21 @@ function chargerPennylane(mode) {
   });
 }
 
+// Import d'une société Pennylane dans la base (associés). Le rapprochement
+// est relu depuis le cache ensuite : la ligne disparaît de la liste.
+function importerPennylane(id, btn) {
+  if (!confirm('Créer ce dossier dans la base à partir de Pennylane et du registre SIRENE ?')) return;
+  btn.disabled = true; btn.textContent = 'Import…';
+  api({ action: 'adminImporterPennylane', email: SESSION.email, token: SESSION.token, ids: [id] }, function (res) {
+    if (!res || !res.ok) { btn.disabled = false; btn.textContent = '➕ Importer dans la base'; alert((res && res.error) || 'Import impossible.'); return; }
+    if (res.erreurs && res.erreurs.length) alert(res.erreurs.join('\n'));
+    if (res.importes && res.importes.length) {
+      chargerDossiers();   // la base a une ligne de plus : on la recharge
+      chargerPennylane('etat');
+    } else { btn.disabled = false; btn.textContent = '➕ Importer dans la base'; }
+  });
+}
+
 function tablePennylane(colonnes, lignes) {
   return '<table class="pl-table"><tr>' + colonnes.map(function (c) { return '<th>' + esc(c[0]) + '</th>'; }).join('') + '</tr>' +
     lignes.map(function (l) {
@@ -1157,10 +1172,18 @@ function rendrePennylane(r) {
       tablePennylane([['Code', 'code'], ['Dénomination', 'denomination'], ['Collaborateur', 'collaborateur']], r.sansSiren) + '</div>';
   }
   if (r.orphelins.length) {
+    var sortis = r.orphelins.filter(function (o) { return o.archive; }).length;
     h += '<div class="pl-sec"><h3>Dans Pennylane, absents de la base (' + r.orphelins.length + ')</h3>' +
-      '<p>Sociétés du portefeuille dont le SIREN ne correspond à aucun dossier actif : dossiers sortis encore présents dans Pennylane, ' +
-      'ou dossiers à créer dans la base du portail.</p>' +
-      tablePennylane([['Nom Pennylane', 'name'], ['SIREN', 'siren'], ['Code client', 'client_code']], r.orphelins) + '</div>';
+      '<p>' + (sortis ? '<b>' + sortis + '</b> sont des dossiers sortis ou radiés lors de la revue de juillet 2026 : à fermer dans Pennylane, pas à réintégrer. ' : '') +
+      'Les autres peuvent être importés dans la base : nom, SIREN et code client viennent de Pennylane, forme, adresse, NAF et dirigeant du registre SIRENE. ' +
+      'Associé et collaborateur restent à affecter dans la fiche.</p>' +
+      '<table class="pl-table"><tr><th>Nom Pennylane</th><th>SIREN</th><th>Code client</th><th>Archive juillet 2026</th><th></th></tr>' +
+      r.orphelins.map(function (o) {
+        return '<tr><td>' + esc(o.name) + '</td><td class="pl-siren">' + esc(o.siren) + '</td><td>' + esc(o.client_code) + '</td>' +
+          '<td>' + (o.archive ? '<span class="tag warn">' + esc(o.archive) + '</span>' : '—') + '</td>' +
+          '<td>' + (o.archive ? '<span class="maj">à fermer dans Pennylane</span>'
+            : '<button class="btn-rep" onclick="importerPennylane(\'' + esc(o.id) + '\', this)">➕ Importer dans la base</button>') + '</td></tr>';
+      }).join('') + '</table></div>';
   }
   if (r.quand && !r.absents.length && !r.orphelins.length && !r.sansSiren.length) {
     h += '<div class="pl-sec"><p>✓ Base et portefeuille Pennylane parfaitement alignés.</p></div>';
