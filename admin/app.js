@@ -504,6 +504,8 @@ function rendreCompletude(r, ligne) {
     '<button class="btn-rep" onclick="genererCompletude(' + ligne + ', this)" title="Ajoute les éléments manquants selon les règles">↻ Compléter</button>' +
     '<span class="maj" role="status" aria-live="polite"></span></div>';
 
+  h += blocRelances(r, ligne);
+
   ORDRE_PHASES.forEach(function (ph) {
     var lignes = r.lignes.filter(function (l) { return l.phase === ph; });
     if (!lignes.length) return;
@@ -548,6 +550,51 @@ function rendreCompletude(r, ligne) {
     h += '</div>';
   });
   return h;
+}
+
+// ── Relances : rythme du dossier, état, envoi manuel ──────────
+var LIBELLE_RYTHME = { 'standard': 'standard — J+7 · J+14 · J+30', 'espacé': 'espacé — J+14 · J+30 · J+60', 'aucune': 'aucune' };
+
+function blocRelances(r, ligne) {
+  var rel = r.relances;
+  if (!rel) return '';
+  var actives = rel.suivi.filter(function (s) { return s.prochaine || s.relances; });
+  var etat = rel.rythme === 'aucune' ? 'suspendues — choisissez un rythme pour relancer ce client'
+    : actives.map(function (s) {
+        return (LIBELLE_PHASE[s.phase] || s.phase).toLowerCase() + ' : ' +
+          (s.relances ? s.relances + ' envoyée' + (s.relances > 1 ? 's' : '') + (s.derniere ? ' (dernière le ' + esc(s.derniere) + ')' : '') : 'aucune envoyée') +
+          (s.prochaine ? ', prochaine le ' + esc(s.prochaine) : '');
+      }).join(' · ') || 'rien à relancer';
+  return '<div class="cp-relances"><b style="color:var(--blue-dark);">Relances</b>' +
+    '<select onchange="changerRythme(' + ligne + ', \'' + esc(r.code) + '\', this)" aria-label="Rythme des relances">' +
+      Object.keys(LIBELLE_RYTHME).map(function (k) {
+        return '<option value="' + k + '"' + (k === rel.rythme ? ' selected' : '') + '>' + esc(LIBELLE_RYTHME[k]) + '</option>';
+      }).join('') + '</select>' +
+    '<span>' + etat + '</span>' +
+    (rel.mode !== 'actif' ? '<span class="blanc" title="Paramètres → relance.mode = actif pour envoyer réellement">mode blanc</span>' : '') +
+    '<span style="flex:1"></span>' +
+    '<button class="btn-rep" onclick="relancerMaintenant(' + ligne + ', \'' + esc(r.code) + '\', this)">✉ Relancer maintenant</button></div>';
+}
+
+function changerRythme(ligne, code, sel) {
+  var zone = $('cp-' + ligne);
+  sel.disabled = true;
+  api({ action: 'adminRythmeRelance', email: SESSION.email, token: SESSION.token, code: code, rythme: sel.value }, function (res) {
+    if (!res || !res.ok) { sel.disabled = false; alert((res && res.error) || 'Modification impossible.'); return; }
+    zone.innerHTML = rendreCompletude(res, ligne);
+  });
+}
+
+function relancerMaintenant(ligne, code, btn) {
+  if (!confirm('Envoyer maintenant un email de relance au client pour les éléments encore attendus ?')) return;
+  var zone = $('cp-' + ligne);
+  btn.disabled = true; btn.textContent = 'Envoi…';
+  api({ action: 'adminRelancerMaintenant', email: SESSION.email, token: SESSION.token, code: code }, function (res) {
+    if (!res || !res.ok) { btn.disabled = false; btn.textContent = '✉ Relancer maintenant'; alert((res && res.error) || 'Envoi impossible.'); return; }
+    zone.innerHTML = rendreCompletude(res, ligne);
+    var msg = zone.querySelector('.maj');
+    if (msg) { msg.textContent = res.envois ? '✓ ' + res.envois + ' email(s) envoyé(s).' : 'Rien à relancer : aucun élément attendu du client.'; msg.className = 'maj ok'; }
+  });
 }
 
 function genererCompletude(ligne, btn) {
@@ -1235,10 +1282,10 @@ function rendreIncomplets(dossiers) {
   $('liste').innerHTML = '<div class="pl-sec"><h3>Dossiers à compléter (' + dossiers.length + ')</h3>' +
     '<p>Éléments en attente du client, et pièces reçues à vérifier par le cabinet, sur les phases ouvertes.</p>' +
     '<table class="pl-table"><tr><th>Dossier</th><th>Code</th><th>Collaborateur</th><th>Phase</th>' +
-    '<th>En attente du client</th><th>À vérifier</th><th></th></tr>' +
+    '<th>En attente du client</th><th>À vérifier</th><th>Relances</th><th></th></tr>' +
     dossiers.map(function (d) {
       return '<tr><td>' + esc(d.denomination) + '</td><td>' + esc(d.code) + '</td><td>' + esc(d.collaborateur) + '</td>' +
-        '<td>' + esc(LIBELLE_PHASE[d.phase] || d.phase) + '</td><td><b>' + d.attendues + '</b></td><td>' + d.aTraiter + '</td>' +
+        '<td>' + esc(LIBELLE_PHASE[d.phase] || d.phase) + '</td><td><b>' + d.attendues + '</b></td><td>' + d.aTraiter + '</td><td>' + esc(d.rythme || '—') + '</td>' +
         '<td><button class="btn-rep" onclick="allerAuDossier(\'' + esc(d.denomination).replace(/'/g, "\\'") + '\')">→ Ouvrir</button></td></tr>';
     }).join('') + '</table></div>';
 }
