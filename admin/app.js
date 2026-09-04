@@ -1120,18 +1120,36 @@ function chargerPennylane(mode) {
   });
 }
 
-// Import d'une société Pennylane dans la base (associés). Le rapprochement
-// est relu depuis le cache ensuite : la ligne disparaît de la liste.
-function importerPennylane(id, btn) {
-  if (!confirm('Créer ce dossier dans la base à partir de Pennylane et du registre SIRENE ?')) return;
+// Import de sociétés Pennylane dans la base (associés). Le choix final
+// appartient à l'associé, archive ou pas ; le compte rendu s'affiche sur
+// place, puis le rapprochement est relu et la base rechargée.
+function cocherTout(el) {
+  document.querySelectorAll('.pl-coche').forEach(function (c) { c.checked = el.checked; });
+}
+
+function importerSelection(btn) {
+  var ids = Array.from(document.querySelectorAll('.pl-coche:checked')).map(function (c) { return c.value; });
+  var msg = btn.parentNode.querySelector('.maj');
+  if (!ids.length) { msg.textContent = 'Cochez au moins une société.'; msg.className = 'maj ko'; return; }
+  importerPennylane(ids, btn);
+}
+
+function importerPennylane(ids, btn) {
+  if (!confirm('Créer ' + ids.length + ' dossier(s) dans la base à partir de Pennylane et du registre SIRENE ?')) return;
+  var sec = $('pl-orphelins');
+  var msg = sec.querySelector('.maj');
+  var avant = btn.textContent;
   btn.disabled = true; btn.textContent = 'Import…';
-  api({ action: 'adminImporterPennylane', email: SESSION.email, token: SESSION.token, ids: [id] }, function (res) {
-    if (!res || !res.ok) { btn.disabled = false; btn.textContent = '➕ Importer dans la base'; alert((res && res.error) || 'Import impossible.'); return; }
-    if (res.erreurs && res.erreurs.length) alert(res.erreurs.join('\n'));
-    if (res.importes && res.importes.length) {
-      chargerDossiers();   // la base a une ligne de plus : on la recharge
-      chargerPennylane('etat');
-    } else { btn.disabled = false; btn.textContent = '➕ Importer dans la base'; }
+  msg.textContent = '⏳ Import de ' + ids.length + ' société(s) — quelques secondes par dossier…'; msg.className = 'maj';
+  api({ action: 'adminImporterPennylane', email: SESSION.email, token: SESSION.token, ids: ids }, function (res) {
+    if (!res || !res.ok) { btn.disabled = false; btn.textContent = avant; msg.textContent = '⚠ ' + ((res && res.error) || 'Import impossible.'); msg.className = 'maj ko'; return; }
+    var n = (res.importes || []).length, e = res.erreurs || [];
+    msg.textContent = '✓ ' + n + ' dossier(s) créé(s)' + (e.length ? ' · ' + e.length + ' non importé(s) : ' + e.join(' ; ') : '');
+    msg.className = e.length && !n ? 'maj ko' : 'maj ok';
+    if (n) {
+      chargerDossiers();
+      setTimeout(function () { chargerPennylane('etat'); }, 1500);
+    } else { btn.disabled = false; btn.textContent = avant; }
   });
 }
 
@@ -1173,16 +1191,20 @@ function rendrePennylane(r) {
   }
   if (r.orphelins.length) {
     var sortis = r.orphelins.filter(function (o) { return o.archive; }).length;
-    h += '<div class="pl-sec"><h3>Dans Pennylane, absents de la base (' + r.orphelins.length + ')</h3>' +
-      '<p>' + (sortis ? '<b>' + sortis + '</b> sont des dossiers sortis ou radiés lors de la revue de juillet 2026 : à fermer dans Pennylane, pas à réintégrer. ' : '') +
-      'Les autres peuvent être importés dans la base : nom, SIREN et code client viennent de Pennylane, forme, adresse, NAF et dirigeant du registre SIRENE. ' +
+    h += '<div class="pl-sec" id="pl-orphelins"><h3>Dans Pennylane, absents de la base (' + r.orphelins.length + ')</h3>' +
+      '<p>' + (sortis ? '<b>' + sortis + '</b> figurent à l\'archive des dossiers sortis ou radiés en juillet 2026 — indication seulement, le choix vous revient. ' : '') +
+      'À l\'import : nom, SIREN et code client viennent de Pennylane ; forme, SIRET, adresse, NAF et dirigeant du registre SIRENE. ' +
       'Associé et collaborateur restent à affecter dans la fiche.</p>' +
-      '<table class="pl-table"><tr><th>Nom Pennylane</th><th>SIREN</th><th>Code client</th><th>Archive juillet 2026</th><th></th></tr>' +
+      '<div class="lettre-actions" style="margin-bottom:8px;">' +
+        '<button class="btn-envoyer" onclick="importerSelection(this)">➕ Importer la sélection</button>' +
+        '<span class="maj" role="status" aria-live="polite"></span></div>' +
+      '<table class="pl-table"><tr><th><input type="checkbox" onchange="cocherTout(this)" title="Tout sélectionner"></th>' +
+      '<th>Nom Pennylane</th><th>SIREN</th><th>Code client</th><th>Archive juillet 2026</th><th></th></tr>' +
       r.orphelins.map(function (o) {
-        return '<tr><td>' + esc(o.name) + '</td><td class="pl-siren">' + esc(o.siren) + '</td><td>' + esc(o.client_code) + '</td>' +
+        return '<tr><td><input type="checkbox" class="pl-coche" value="' + esc(o.id) + '"></td>' +
+          '<td>' + esc(o.name) + '</td><td class="pl-siren">' + esc(o.siren) + '</td><td>' + esc(o.client_code) + '</td>' +
           '<td>' + (o.archive ? '<span class="tag warn">' + esc(o.archive) + '</span>' : '—') + '</td>' +
-          '<td>' + (o.archive ? '<span class="maj">à fermer dans Pennylane</span>'
-            : '<button class="btn-rep" onclick="importerPennylane(\'' + esc(o.id) + '\', this)">➕ Importer dans la base</button>') + '</td></tr>';
+          '<td><button class="btn-rep" onclick="importerPennylane([\'' + esc(o.id) + '\'], this)">➕ Importer</button></td></tr>';
       }).join('') + '</table></div>';
   }
   if (r.quand && !r.absents.length && !r.orphelins.length && !r.sansSiren.length) {
