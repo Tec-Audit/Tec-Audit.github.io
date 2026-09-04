@@ -478,7 +478,7 @@ function chargerCompletude(ligne, det, forcer) {
   });
 }
 
-var LIBELLE_PHASE = { 'soumission': 'À la soumission', 'statuts-signes': 'Statuts signés', 'depot-capital': 'Dépôt du capital',
+var LIBELLE_PHASE = { 'soumission': 'À la soumission', 'statuts-signes': 'Documents à signer', 'depot-capital': 'Dépôt du capital',
                       'siren-definitif': 'Après immatriculation', 'ldm-signee': 'Après la lettre de mission signée' };
 var ORDRE_PHASES = ['soumission', 'statuts-signes', 'depot-capital', 'siren-definitif', 'ldm-signee'];
 
