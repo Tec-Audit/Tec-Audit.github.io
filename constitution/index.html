@@ -580,6 +580,14 @@
         </div>
         <div class="notice">Marié(e) sous un régime de communauté&nbsp;? Renseignez votre situation familiale ci-dessus : une attestation d'information du conjoint vous sera demandée.</div>
       </div>
+      <div id="sci-bloc" style="display:none" class="sub">
+        <div class="sub-title">SCI — options</div>
+        <div class="grid g2">
+          <div class="field"><label>Un immeuble est-il apporté à la société&nbsp;?</label>
+            <select id="apport-immeuble" onchange="majPieceApport()"><option value="non">Non (apports en numéraire)</option><option value="oui">Oui (apport en nature d'un bien immobilier)</option></select></div>
+        </div>
+        <div class="notice">L'apport d'un immeuble passe par un acte notarié : il vous sera demandé avec les statuts signés. Un gérant de SCI non rémunéré n'est pas affilié : ni demande d'ACRE, ni attestation Vitale.</div>
+      </div>
       <div id="capital-error" style="display:none;color:#c0392b;font-size:13px;margin-bottom:12px;padding:10px 14px;background:#fdecea;border-radius:3px;border-left:3px solid #c0392b;"></div>
       <div class="notice">
       </div>
@@ -633,7 +641,7 @@
 
       <ul class="piece-list" id="pieces-personnes"></ul>
       <ul class="piece-list">
-        <li class="piece-item piece-upload">
+        <li class="piece-item piece-upload" id="piece-vitale">
           <div class="piece-label">
             <span class="piece-icon">&#127973;</span>
             <div>
@@ -695,6 +703,13 @@
           <label class="upload-btn" for="file-diplome"><span id="diplome-text">Choisir le fichier</span>
             <input type="file" id="file-diplome" multiple accept="image/*,.pdf" onchange="updateFileLabel('diplome')"></label>
           <div class="file-names" id="diplome-names"></div>
+        </li>
+        <li class="piece-item piece-upload" id="piece-apport" style="display:none;">
+          <div class="piece-label"><span class="piece-icon">&#127968;</span><div><strong>Acte notari&eacute; d'apport de l'immeuble</strong>
+            <div class="piece-hint">SCI &mdash; apport en nature</div></div></div>
+          <label class="upload-btn" for="file-apport"><span id="apport-text">Choisir le fichier</span>
+            <input type="file" id="file-apport" multiple accept="image/*,.pdf" onchange="updateFileLabel('apport')"></label>
+          <div class="file-names" id="apport-names"></div>
         </li>
       </ul>
 
@@ -771,7 +786,7 @@ function afficherChargement(actif) {
 // ── Navigation ──────────────────────────────────────────────────
 
 function goTo(n) {
-  if (n === 3) { try { buildPiecesPersonnes(); updateAcrePieceVisibility(); } catch(e) {} }
+  if (n === 3) { try { buildPiecesPersonnes(); updateAcrePieceVisibility(); majPieceApport(); } catch(e) {} }
   document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
   var el = document.getElementById('sec-' + n);
   if (el) el.classList.add('active');
@@ -797,6 +812,12 @@ function appliquerAffichagesForme() {
   if (tabs[1]) tabs[1].textContent = ei ? 'Entrepreneur' : 'Associés';
   var eiBloc = document.getElementById('ei-bloc');
   if (eiBloc) eiBloc.style.display = ei ? '' : 'none';
+  var sci = document.getElementById('forme').value === 'SCI';
+  var sciBloc = document.getElementById('sci-bloc');
+  if (sciBloc) sciBloc.style.display = sci ? '' : 'none';
+  var vitale = document.getElementById('piece-vitale');
+  if (vitale) vitale.style.display = sci ? 'none' : '';
+  if (typeof majPieceApport === 'function') majPieceApport();
 }
 
 function onFormeChange() {
@@ -1172,7 +1193,8 @@ function onManAssocChange(idx) {
   var profChk = document.querySelector('input[name="a' + ai + '-prof"]:checked');
   var isDemandeur = profChk && profChk.value === 'demandeur';
   var acreWrap = document.getElementById(p + '-acre-wrap');
-  if (acreWrap) acreWrap.style.display = isDemandeur ? '' : 'none';
+  var sci = document.getElementById('forme').value === 'SCI';   // gérant de SCI non affilié : pas d'ACRE
+  if (acreWrap) acreWrap.style.display = (isDemandeur && !sci) ? '' : 'none';
   if (typeof renderAcreVerdict === 'function') renderAcreVerdict(idx);
 }
 
@@ -1238,7 +1260,7 @@ function updateManBlocks() {
       noticeEl.innerHTML = '<strong>SARL :</strong> Il peut y avoir un ou plusieurs gérants, associés ou non associés.';
       noticeEl.style.display = 'block';
     } else if (forme === 'SCI') {
-      noticeEl.innerHTML = '<strong>SCI :</strong> Il peut y avoir un ou plusieurs gérants, associés ou non associés.';
+      noticeEl.innerHTML = '<strong>SCI :</strong> Il peut y avoir un ou plusieurs gérants, associés ou non associés. Un gérant non rémunéré n’est pas affilié : pas de demande d’ACRE.';
       noticeEl.style.display = 'block';
     } else if (forme === 'EI') {
       noticeEl.innerHTML = '<strong>Entreprise individuelle :</strong> vous êtes le représentant légal. Cette étape sert à vérifier votre éligibilité à l’ACRE.';
@@ -1694,7 +1716,17 @@ function updateAcrePieceVisibility() {
   var nbM = parseInt((document.getElementById('nb-man') || {value:'0'}).value) || 0;
   var show = false;
   for (var i = 0; i < nbM; i++) if (acreRadio('man' + i + '-acre') === 'oui') show = true;
+  if (document.getElementById('forme').value === 'SCI') show = false;   // gérant de SCI non affilié : pas d'ACRE
   li.style.display = show ? '' : 'none';
+}
+
+// Acte notarié d'apport : SCI avec apport d'un immeuble seulement
+function majPieceApport() {
+  var li = document.getElementById('piece-apport');
+  if (!li) return;
+  var sci = document.getElementById('forme').value === 'SCI';
+  var oui = ((document.getElementById('apport-immeuble') || {}).value === 'oui');
+  li.style.display = (sci && oui) ? '' : 'none';
 }
 
 // ── Validation helper ─────────────────────────────────────────
@@ -1992,6 +2024,7 @@ function buildSummary() {
     html += row('Capital social', v('capital') !== '—' ? v('capital') + ' €' : '—');
     html += row('Mois de clôture', v('cloture'));
     if (forme === 'EI') { html += row('Régime fiscal', v('ei-regime')) + row('Option IS', v('ei-is')) + row('Activité réglementée', v('activite-reglementee') + (v('ei-activite-detail') !== '—' ? ' — ' + v('ei-activite-detail') : '')); }
+    if (forme === 'SCI') { html += row('Apport d\'un immeuble', v('apport-immeuble')); }
     var adSiege = v('adresse');
     var cpSiege = v('cp');
     var vlSiege = v('ville');
@@ -2083,7 +2116,8 @@ function listeFichiers() {
     { id: 'p3', tag: 'justif-domicile', label: 'Justificatif de domicile' },
     { id: 'p4', tag: 'contrat-domiciliation', label: 'Bail / contrat de domiciliation' },
     { id: 'p5', tag: 'france-travail', label: 'Avis de situation France Travail' },
-    { id: 'diplome', tag: 'diplome', label: 'Diplôme ou autorisation d’exercer' }
+    { id: 'diplome', tag: 'diplome', label: 'Diplôme ou autorisation d’exercer' },
+    { id: 'apport', tag: 'acte-apport', label: 'Acte notarié d’apport' }
   ];
   return personnesFormulaire().concat(fixes);
 }
