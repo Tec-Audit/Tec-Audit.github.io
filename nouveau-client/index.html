@@ -232,12 +232,12 @@
         <div class="field"><label for="denomination">Dénomination sociale</label><input type="text" id="denomination"></div>
         <div class="field"><label for="forme">Forme juridique</label><input type="text" id="forme" placeholder="SAS, SARL, SCI…"></div>
         <div class="field"><label for="siret">SIRET (siège)</label><input type="text" id="siret"></div>
-        <div class="field"><label for="tva">N° TVA intracommunautaire</label><input type="text" id="tva" placeholder="FR__ _________"></div>
+        <div class="field"><label for="tva">N° TVA intracommunautaire <span class="note">(si assujettie)</span></label><input type="text" id="tva" placeholder="FR__ _________"></div>
         <div class="field gc2"><label for="adresse">Adresse du siège</label><input type="text" id="adresse"></div>
         <div class="field"><label for="cp">Code postal</label><input type="text" id="cp" maxlength="5" oninput="validateCP(this)"></div>
         <div class="field"><label for="ville">Ville</label><input type="text" id="ville"></div>
-        <div class="field"><label for="naf">Code NAF</label><input type="text" id="naf"></div>
-        <div class="field"><label for="activite">Activité <span class="note">(décrivez-la en quelques mots)</span></label><input type="text" id="activite" placeholder="Ex : restauration rapide, conseil informatique…"></div>
+        <div class="field"><label for="naf">Code NAF</label><input type="text" id="naf" placeholder="Ex : 68.20B" oninput="onNafInput(this)"></div>
+        <div class="field"><label for="activite">Activité <span class="note">(décrivez-la en quelques mots)</span></label><input type="text" id="activite" placeholder="Ex : restauration rapide, conseil informatique…" oninput="this.dataset.auto=''"></div>
         <div class="field"><label for="capital">Capital social (€)</label><input type="number" id="capital" min="0"></div>
         <div class="field"><label for="cloture">Mois de clôture de l'exercice</label>
           <select id="cloture"><option value="">— Sélectionner —</option>
@@ -252,7 +252,7 @@
           <div class="field"><label for="regime-is">Imposition des bénéfices</label>
             <select id="regime-is"><option value="">— Sélectionner —</option><option>IS — Impôt sur les sociétés</option><option>IR — Impôt sur le revenu</option><option>Je ne sais pas</option></select></div>
           <div class="field"><label for="regime-tva">Régime de TVA</label>
-            <select id="regime-tva"><option value="">— Sélectionner —</option><option>Réel normal (mensuel)</option><option>Réel simplifié (annuel)</option><option>Franchise en base (pas de TVA)</option><option>Je ne sais pas</option></select></div>
+            <select id="regime-tva"><option value="">— Sélectionner —</option><option>Réel normal (mensuel)</option><option>Réel simplifié (annuel)</option><option>Non assujettie (SCI de location nue, activité exonérée…)</option><option>Franchise en base (pas de TVA)</option><option>Je ne sais pas</option></select></div>
         </div>
       </div>
 
@@ -565,7 +565,7 @@ function piecesBE() {
   }
   return out;
 }
-function toutesPieces() { return PIECES.concat(piecesBE()); }
+function toutesPieces() { return PIECES.filter(pieceVisible).concat(piecesBE()); }
 function rendreLigne(p) {
   return '<li class="piece-item">' +
     '<div class="piece-label"><span>📄</span><div><strong>' + p.label + '</strong>' +
@@ -587,7 +587,7 @@ function estEI() { return /individuel|^EI$|EIRL|micro/i.test((document.getElemen
 document.addEventListener('DOMContentLoaded', function () {
   ajouterBE();
   var ul = document.getElementById('pieces');
-  ul.innerHTML = PIECES.map(rendreLigne).join('');
+  ul.innerHTML = PIECES.filter(pieceVisible).map(rendreLigne).join('');
 
   var el = document.getElementById('rgpd-email');
   if (el) el.textContent = ['contact', 'tec-audit.fr'].join('@');
@@ -704,19 +704,16 @@ function prefillSiren() {
       set('cp', siege.code_postal || '');
       set('ville', siege.libelle_commune || '');
       set('naf', e.activite_principale || '');
-      // Dirigeant : première personne physique déclarée au registre
-      var dir = (e.dirigeants || []).filter(function (x) { return String(x.type_dirigeant || '').indexOf('physique') > -1; })[0];
-      if (dir) {
-        set('d-nom', dir.nom || '');
-        set('d-prenom', String(dir.prenoms || '').split(/[ ,]+/)[0] || '');
-        set('d-fonction', dir.qualite || '');
-        if (!((document.getElementById('be0-nom') || {}).value)) { set('be0-nom', dir.nom || ''); set('be0-prenom', String(dir.prenoms || '').split(/[ ,]+/)[0] || ''); }
-      }
+      // Activité en clair depuis le code NAF (table naf.json)
+      onNafInput(document.getElementById('naf'));
+      // Dirigeants : personnes physiques déclarées au registre ; le client choisit le représentant qui signe
+      SIRENE_DIRIGEANTS = (e.dirigeants || []).filter(function (x) { return String(x.type_dirigeant || '').indexOf('physique') > -1; });
+      if (SIRENE_DIRIGEANTS.length) appliquerDirigeant(0);
       // N° TVA : FR + clé calculée + SIREN
       var cle = (12 + 3 * (parseInt(siren, 10) % 97)) % 97;
       set('tva', 'FR' + (cle < 10 ? '0' : '') + cle + siren);
       info.style.display = 'block';
-      info.innerHTML = '✓ <strong>' + (e.nom_complet || '') + '</strong> — informations pré-remplies depuis le registre national (SIRENE). Vérifiez et complétez.';
+      info.innerHTML = '✓ <strong>' + escHtml(e.nom_complet || '') + '</strong> — informations pré-remplies depuis le registre national (SIRENE). Vérifiez et complétez.' + blocDirigeants();
     })
     .catch(function () {
       btn.disabled = false; btn.textContent = '🔍 Pré-remplir';
@@ -725,6 +722,59 @@ function prefillSiren() {
     });
 }
 function set(id, v) { var el = document.getElementById(id); if (el && v) el.value = v; }
+function escHtml(t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+// ── Dirigeants lus au registre ──
+var SIRENE_DIRIGEANTS = [], BE_PREREMPLI = false;
+function nomPropre(d) { return String(d.nom || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim(); }   // « YOUSSEF (SEMAAN) » → « YOUSSEF »
+function prenomPropre(d) { return String(d.prenoms || '').split(/[ ,]+/)[0] || ''; }
+function fonctionDepuisQualite(q, forme) {
+  q = String(q || '').toLowerCase(); forme = String(forme || '').toUpperCase();
+  if (/g[ée]rant/.test(q)) return 'Gérant(e)';
+  if (/pr[ée]sident/.test(q)) return 'Président(e)';
+  if (/directeur g[ée]n[ée]ral/.test(q)) return 'Directeur(trice) Général(e)';
+  if (/SCI|SARL|EURL|SNC|CIVILE|RESPONSABILIT/.test(forme)) return 'Gérant(e)';   // « Autre » au registre : on déduit de la forme
+  if (/SAS|SASU|ACTIONS SIMPLIFI|ANONYME/.test(forme)) return 'Président(e)';
+  return 'Autre';
+}
+function appliquerDirigeant(i) {
+  var d = SIRENE_DIRIGEANTS[i]; if (!d) return;
+  var nom = nomPropre(d), prenom = prenomPropre(d);
+  document.getElementById('d-nom').value = nom;
+  document.getElementById('d-prenom').value = prenom;
+  document.getElementById('d-fonction').value = fonctionDepuisQualite(d.qualite, document.getElementById('forme').value);
+  var be = document.getElementById('be0-nom');
+  if (be && (!be.value || BE_PREREMPLI)) { set('be0-nom', nom); set('be0-prenom', prenom); BE_PREREMPLI = true; }
+}
+function blocDirigeants() {
+  if (SIRENE_DIRIGEANTS.length < 2) return '';
+  return '<div style="margin-top:8px;"><strong>' + SIRENE_DIRIGEANTS.length + ' dirigeants au registre.</strong> Qui sera le représentant qui signe la lettre de mission&nbsp;? ' +
+    '<select id="dir-choix" onchange="appliquerDirigeant(parseInt(this.value, 10))" style="margin-left:6px;">' +
+    SIRENE_DIRIGEANTS.map(function (d, i) { return '<option value="' + i + '">' + escHtml(prenomPropre(d) + ' ' + nomPropre(d)) + (d.qualite ? ' — ' + escHtml(d.qualite) : '') + '</option>'; }).join('') +
+    '</select></div>';
+}
+
+// ── Code NAF → activité en clair ──
+var NAF_LIBELLES = null;
+function libelleNaf(code, cb) {
+  var c = String(code || '').toUpperCase().replace(/\s/g, '');
+  if (c.length === 5 && c.indexOf('.') < 0) c = c.slice(0, 2) + '.' + c.slice(2);
+  if (!/^\d\d\.\d\d[A-Z]$/.test(c)) { cb(''); return; }
+  if (NAF_LIBELLES) { cb(NAF_LIBELLES[c] || ''); return; }
+  fetch('naf.json').then(function (r) { return r.json(); }).then(function (j) { NAF_LIBELLES = j; cb(j[c] || ''); }).catch(function () { cb(''); });
+}
+function onNafInput(el) {
+  if (!el) return;
+  libelleNaf(el.value, function (lib) {
+    var act = document.getElementById('activite');
+    if (lib && act && (!act.value || act.dataset.auto === '1')) { act.value = lib; act.dataset.auto = '1'; }
+  });
+}
+// Pièce TVA sans objet si la société n'est pas assujettie
+function pieceVisible(p) {
+  if (p.id === 'p7') return !/non assujettie|franchise/i.test((document.getElementById('regime-tva') || {}).value || '');
+  return true;
+}
 function libelleNature(code) {
   var map = { '5710': 'SAS', '5720': 'SASU', '5499': 'SARL', '5498': 'EURL', '6540': 'SCI', '1000': 'Entreprise individuelle', '5599': 'SA' };
   return map[String(code)] || '';
