@@ -804,7 +804,7 @@ function appliquerDirigeant(i) {
   // Civilité : le registre de l'INPI fait foi ; à défaut, le prénom quand il est sans ambiguïté
   if (d.genre) document.getElementById('d-civilite').value = d.genre === 'F' ? 'Madame' : 'Monsieur';
   else civiliteDepuisPrenom(prenom, function (civ) { document.getElementById('d-civilite').value = civ; });
-  if (d.nationalite) set('d-nationalite', d.nationalite);
+  if (d.nationalite) set('d-nat', d.nationalite);
   if (/^\d{4}-\d{2}-\d{2}$/.test(d.naissance || '')) set('d-naiss', d.naissance);
   var be = document.getElementById('be0-nom');
   if (be && (!be.value || BE_PREREMPLI)) { set('be0-nom', nom); set('be0-prenom', prenom); BE_PREREMPLI = true; }
