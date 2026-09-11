@@ -560,7 +560,7 @@ function definirClient() {
   chargerDossier();
 }
 function completerCabinet(payload) {
-  if (!CABINET || !/^(save|load|submit)$/.test(payload.action)) return payload;
+  if (!CABINET || !/^(save|load|submit|inpiDirigeants)$/.test(payload.action)) return payload;
   payload.cabinet = 1; payload.cabinetEmail = CABINET.email; payload.cabinetToken = CABINET.token;
   return payload;
 }
@@ -709,7 +709,7 @@ function seDeconnecter() {
 
 function callScript(payload, callback) {
   completerCabinet(payload);
-  if (CABINET && !SESSION.email && /^(save|load|submit)$/.test(payload.action)) { callback({ ok: false, error: 'Indiquez d\u2019abord l\u2019adresse email du client (bandeau jaune).' }); return; }
+  if (CABINET && !SESSION.email && /^(save|load|submit|inpiDirigeants)$/.test(payload.action)) { callback({ ok: false, error: 'Indiquez d\u2019abord l\u2019adresse email du client (bandeau jaune).' }); return; }
   fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) })
     .then(function (r) { return r.json(); })
     .then(function (res) {
@@ -766,7 +766,7 @@ function prefillSiren() {
       onNafInput(document.getElementById('naf'));
       // Dirigeants : personnes physiques déclarées au registre ; le client choisit le représentant qui signe
       SIRENE_DIRIGEANTS = (e.dirigeants || []).filter(function (x) { return String(x.type_dirigeant || '').indexOf('physique') > -1; });
-      if (SIRENE_DIRIGEANTS.length) appliquerDirigeant(0);
+      if (SIRENE_DIRIGEANTS.length) { appliquerDirigeant(0); enrichirDepuisInpi(siren); }
       // N° TVA : FR + clé calculée + SIREN
       var cle = (12 + 3 * (parseInt(siren, 10) % 97)) % 97;
       set('tva', 'FR' + (cle < 10 ? '0' : '') + cle + siren);
@@ -801,9 +801,29 @@ function appliquerDirigeant(i) {
   document.getElementById('d-nom').value = nom;
   document.getElementById('d-prenom').value = prenom;
   document.getElementById('d-fonction').value = fonctionDepuisQualite(d.qualite, document.getElementById('forme').value);
-  civiliteDepuisPrenom(prenom, function (civ) { document.getElementById('d-civilite').value = civ; });
+  // Civilité : le registre de l'INPI fait foi ; à défaut, le prénom quand il est sans ambiguïté
+  if (d.genre) document.getElementById('d-civilite').value = d.genre === 'F' ? 'Madame' : 'Monsieur';
+  else civiliteDepuisPrenom(prenom, function (civ) { document.getElementById('d-civilite').value = civ; });
+  if (d.nationalite) set('d-nationalite', d.nationalite);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d.naissance || '')) set('d-naiss', d.naissance);
   var be = document.getElementById('be0-nom');
   if (be && (!be.value || BE_PREREMPLI)) { set('be0-nom', nom); set('be0-prenom', prenom); BE_PREREMPLI = true; }
+}
+// Complément INPI (registre national des entreprises) : civilité, nationalité, naissance.
+function enrichirDepuisInpi(siren) {
+  callScript({ action: 'inpiDirigeants', siren: siren, email: SESSION.email, token: SESSION.token }, function (res) {
+    if (!res || !res.ok || !res.dirigeants || !res.dirigeants.length) return;
+    var cle = function (n, p) { return (String(n || '') + '|' + String(p || '').split(/[ ,]+/)[0]).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); };
+    var trouve = false;
+    SIRENE_DIRIGEANTS.forEach(function (d) {
+      var k = cle(nomPropre(d), prenomPropre(d));
+      var m = res.dirigeants.filter(function (x) { return cle(x.nom, x.prenoms) === k || cle(x.nomUsage, x.prenoms) === k; })[0];
+      if (m) { d.genre = m.genre; d.naissance = m.naissance; d.nationalite = m.nationalite; trouve = true; }
+    });
+    if (!trouve) return;
+    var sel = document.getElementById('dir-choix');
+    appliquerDirigeant(sel ? (parseInt(sel.value, 10) || 0) : 0);
+  });
 }
 function blocDirigeants() {
   if (SIRENE_DIRIGEANTS.length < 2) return '';
