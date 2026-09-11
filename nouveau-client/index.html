@@ -289,7 +289,7 @@
         <div class="field"><label for="d-naiss">Date de naissance</label><input type="date" id="d-naiss"></div>
         <div class="field"><label for="d-lieu">Lieu de naissance</label><input type="text" id="d-lieu"></div>
         <div class="field"><label for="d-nat">Nationalité</label><input type="text" id="d-nat" value="Française"></div>
-        <div class="field"><label for="d-ss">N° Sécurité Sociale <span class="note">(pour le volet social)</span></label>
+        <div class="field"><label for="d-ss">N° Sécurité Sociale <span class="note">(dirigeant affilié : gérant majoritaire, président rémunéré)</span></label>
           <input type="text" id="d-ss" placeholder="1 00 00 00 000 000 00" oninput="onSSChange(this)"></div>
         <div class="field gc2"><label for="d-adresse">Adresse personnelle</label><input type="text" id="d-adresse"></div>
         <div class="field"><label for="d-cp">Code postal</label><input type="text" id="d-cp" maxlength="5" oninput="validateCP(this)"></div>
@@ -700,6 +700,7 @@ function buildPiecesBE() {
   zone.innerHTML = liste.map(rendreLigne).join('');
 }
 function estEI() { return /individuel|^EI$|EIRL|micro/i.test((document.getElementById('forme') || {}).value || ''); }
+function estSCI() { return /\bSCI\b|civile immobili/i.test((document.getElementById('forme') || {}).value || ''); }
 
 document.addEventListener('DOMContentLoaded', function () {
   initCabinet();
@@ -785,7 +786,11 @@ function callScript(payload, callback) {
 //  Navigation
 // ══════════════════════════════════════════════════════════════
 function goTo(n) {
-  if (n === 1) { ['be-bloc', 'dir-bloc'].forEach(function (id) { var bb = document.getElementById(id); if (bb) bb.style.display = estEI() ? 'none' : ''; }); }
+  if (n === 1) {
+    ['be-bloc', 'dir-bloc'].forEach(function (id) { var bb = document.getElementById(id); if (bb) bb.style.display = estEI() ? 'none' : ''; });
+    // N° de sécurité sociale : seulement si le dirigeant peut être affilié (pas pour une SCI, gérant non rémunéré)
+    var ss = document.getElementById('d-ss'); if (ss && ss.closest('.field')) ss.closest('.field').style.display = estSCI() ? 'none' : '';
+  }
   if (n === 4) buildPiecesBE();
   document.querySelectorAll('.section').forEach(function (s, i) { s.classList.toggle('active', i === n); });
   document.querySelectorAll('.step-tab').forEach(function (t, i) { t.classList.toggle('active', i === n); });
