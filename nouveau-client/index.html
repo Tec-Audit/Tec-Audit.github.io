@@ -138,6 +138,13 @@
   .hero h2 { font-weight: 500; letter-spacing: -0.015em; }
   .header-center h1, .login-title { font-weight: 600; }
 </style>
+<style>
+#cabinet-bar{position:sticky;top:0;z-index:60;background:#fff8e1;border-bottom:2px solid #f9a825;padding:8px 16px;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;font-size:13.5px;font-family:inherit;color:#5a4300}
+#cabinet-bar label{display:inline-flex;align-items:center;gap:6px}
+#cabinet-bar input{padding:5px 8px;border:1px solid #cbb;border-radius:3px;min-width:230px;font:inherit}
+#cabinet-bar button{padding:6px 12px;background:#0E4194;color:#fff;border:0;border-radius:3px;cursor:pointer;font:inherit}
+#cabinet-bar #cabinet-etat{color:#2e7d32;font-weight:600}
+</style>
 </head>
 <body>
 
@@ -274,7 +281,7 @@
         <div class="field"><label for="d-fonction">Fonction</label>
           <select id="d-fonction"><option>Gérant(e)</option><option>Président(e)</option><option>Directeur(trice) Général(e)</option><option>Autre</option></select></div>
         <div class="field"><label for="d-civilite">Civilité</label>
-          <select id="d-civilite"><option>Monsieur</option><option>Madame</option></select></div>
+          <select id="d-civilite"><option value="">— À préciser —</option><option>Monsieur</option><option>Madame</option></select></div>
         <div class="field"><label for="d-nom">Nom</label><input type="text" id="d-nom"></div>
         <div class="field"><label for="d-prenom">Prénom</label><input type="text" id="d-prenom"></div>
         <div class="field"><label for="d-naiss">Date de naissance</label><input type="date" id="d-naiss"></div>
@@ -493,6 +500,7 @@
 
 <script>
 function sessionExpiree() {
+  if (CABINET) { alert('Votre session de l\u2019espace interne a expiré. Reconnectez-vous, puis relancez la saisie.'); location.href = '/admin/'; return; }
   var el = document.getElementById('expire');
   if (!el || el.style.display === 'flex') return;
   var ch = document.getElementById('chargement'); if (ch) ch.style.display = 'none';
@@ -510,6 +518,53 @@ function afficherChargement(actif) {
 var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwbTEFCrnTOjmhycGdb1ShTln6ntnAi-cSeFyPbmIjqoxBqBZRlKwMc44uJev8Q8HI/exec';
 var PARCOURS = 'nouveau-client';
 var SESSION = { email: '', nom: '', token: '' };
+
+// ── Mode cabinet : un collaborateur de TEC AUDIT remplit le formulaire pour un client.
+//    Ouvert depuis l'espace interne (?cabinet=1&client=email) ; la session de l'espace
+//    interne est lue dans le navigateur, le dossier est enregistré au nom du client.
+var CABINET = null;
+function escCab(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function initCabinet() {
+  var q = new URLSearchParams(location.search);
+  if (q.get('cabinet') !== '1') return false;
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem('tec.admin.session') || 'null'); } catch (e) {}
+  var ecran = document.getElementById('login-screen');
+  if (!s || !s.token || !s.exp || s.exp < Date.now()) {
+    ecran.innerHTML = '<div style="max-width:460px;margin:80px auto;background:#fff;padding:28px 32px;border-radius:6px;font-size:15px;line-height:1.6;">' +
+      '<h2 style="margin:0 0 10px;">Saisie par le cabinet</h2><p>Connectez-vous d\u2019abord à l\u2019<a href="/admin/">espace interne</a>, puis relancez « Saisir un dossier pour un client ».</p></div>';
+    return true;
+  }
+  CABINET = { email: s.email, token: s.token, nom: s.nom || s.email };
+  var client = (q.get('client') || '').trim().toLowerCase();
+  ecran.style.display = 'none';
+  document.body.classList.add('logged-in');
+  var bar = document.getElementById('save-bar'); if (bar) bar.style.display = 'flex';
+  var b = document.createElement('div'); b.id = 'cabinet-bar';
+  b.innerHTML = '<span>\uD83C\uDFE2 <strong>Saisie par le cabinet</strong> — ' + escCab(CABINET.nom) + '</span>' +
+    '<label>Email du client <input type="email" id="cabinet-client" value="' + escCab(client) + '" placeholder="client@exemple.fr"></label>' +
+    '<button type="button" onclick="definirClient()">Valider</button><span id="cabinet-etat"></span>';
+  document.body.insertBefore(b, document.body.firstChild);
+  document.getElementById('cabinet-client').addEventListener('keydown', function (e) { if (e.key === 'Enter') definirClient(); });
+  if (client) definirClient();
+  return true;
+}
+function definirClient() {
+  var email = (document.getElementById('cabinet-client').value || '').trim().toLowerCase();
+  var etat = document.getElementById('cabinet-etat');
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { etat.style.color = '#c0392b'; etat.textContent = 'Adresse email du client invalide.'; return; }
+  SESSION.email = email; SESSION.nom = 'Client ' + email; SESSION.token = '';
+  var si = document.getElementById('save-info'); if (si) si.textContent = '\uD83C\uDFE2 ' + CABINET.nom + ' \u2192 client ' + email;
+  etat.style.color = '#2e7d32'; etat.textContent = 'Le dossier sera enregistré au nom de ' + email + '.';
+  if (typeof afficherChargement === 'function') afficherChargement(true);
+  chargerDossier();
+}
+function completerCabinet(payload) {
+  if (!CABINET || !/^(save|load|submit)$/.test(payload.action)) return payload;
+  payload.cabinet = 1; payload.cabinetEmail = CABINET.email; payload.cabinetToken = CABINET.token;
+  return payload;
+}
+
 
 var PIECES = [
   { id: 'p1', label: 'Extrait Kbis récent', hint: 'Moins de 3 mois' },
@@ -585,6 +640,7 @@ function buildPiecesBE() {
 function estEI() { return /individuel|^EI$|EIRL|micro/i.test((document.getElementById('forme') || {}).value || ''); }
 
 document.addEventListener('DOMContentLoaded', function () {
+  initCabinet();
   ajouterBE();
   var ul = document.getElementById('pieces');
   ul.innerHTML = PIECES.filter(pieceVisible).map(rendreLigne).join('');
@@ -652,6 +708,8 @@ function seDeconnecter() {
 }
 
 function callScript(payload, callback) {
+  completerCabinet(payload);
+  if (CABINET && !SESSION.email && /^(save|load|submit)$/.test(payload.action)) { callback({ ok: false, error: 'Indiquez d\u2019abord l\u2019adresse email du client (bandeau jaune).' }); return; }
   fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) })
     .then(function (r) { return r.json(); })
     .then(function (res) {
@@ -743,6 +801,7 @@ function appliquerDirigeant(i) {
   document.getElementById('d-nom').value = nom;
   document.getElementById('d-prenom').value = prenom;
   document.getElementById('d-fonction').value = fonctionDepuisQualite(d.qualite, document.getElementById('forme').value);
+  civiliteDepuisPrenom(prenom, function (civ) { document.getElementById('d-civilite').value = civ; });
   var be = document.getElementById('be0-nom');
   if (be && (!be.value || BE_PREREMPLI)) { set('be0-nom', nom); set('be0-prenom', prenom); BE_PREREMPLI = true; }
 }
@@ -752,6 +811,16 @@ function blocDirigeants() {
     '<select id="dir-choix" onchange="appliquerDirigeant(parseInt(this.value, 10))" style="margin-left:6px;">' +
     SIRENE_DIRIGEANTS.map(function (d, i) { return '<option value="' + i + '">' + escHtml(prenomPropre(d) + ' ' + nomPropre(d)) + (d.qualite ? ' — ' + escHtml(d.qualite) : '') + '</option>'; }).join('') +
     '</select></div>';
+}
+
+// ── Prénom → civilité (fichier des prénoms INSEE, prénoms sans ambiguïté seulement) ──
+var PRENOMS = null;
+function civiliteDepuisPrenom(prenom, cb) {
+  var p = String(prenom || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z-]/g, '');
+  if (!p) { cb(''); return; }
+  var rendre = function (j) { var g = j[p]; cb(g === 'M' ? 'Monsieur' : g === 'F' ? 'Madame' : ''); };
+  if (PRENOMS) { rendre(PRENOMS); return; }
+  fetch('prenoms.json').then(function (r) { return r.json(); }).then(function (j) { PRENOMS = j; rendre(j); }).catch(function () { cb(''); });
 }
 
 // ── Code NAF → activité en clair ──
@@ -1094,6 +1163,7 @@ function validerFormulaire() {
       dossier: collecterDossier()
     }, function (res) {
       if (res && res.ok) {
+        if (CABINET) document.getElementById('confirm-msg').innerHTML = '\u2713 Dossier transmis au nom de <strong>' + escCab(SESSION.email) + '</strong>. Le client re\u00e7oit un email avec l\u2019acc\u00e8s \u00e0 son espace pour suivre l\u2019avancement et d\u00e9poser ses pi\u00e8ces.';
         document.getElementById('confirm-msg').style.display = 'block';
         document.getElementById('confirm-msg').scrollIntoView({ behavior: 'smooth' });
         btn.textContent = '✓ Envoyé';

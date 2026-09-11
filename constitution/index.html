@@ -335,6 +335,13 @@
   .header-center h1, .login-title { font-weight: 600; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+#cabinet-bar{position:sticky;top:0;z-index:60;background:#fff8e1;border-bottom:2px solid #f9a825;padding:8px 16px;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;font-size:13.5px;font-family:inherit;color:#5a4300}
+#cabinet-bar label{display:inline-flex;align-items:center;gap:6px}
+#cabinet-bar input{padding:5px 8px;border:1px solid #cbb;border-radius:3px;min-width:230px;font:inherit}
+#cabinet-bar button{padding:6px 12px;background:#0E4194;color:#fff;border:0;border-radius:3px;cursor:pointer;font:inherit}
+#cabinet-bar #cabinet-etat{color:#2e7d32;font-weight:600}
+</style>
 </head>
 <body>
 
@@ -771,6 +778,7 @@
 </div>
 <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 function sessionExpiree() {
+  if (CABINET) { alert('Votre session de l\u2019espace interne a expiré. Reconnectez-vous, puis relancez la saisie.'); location.href = '/admin/'; return; }
   var el = document.getElementById('expire');
   if (!el || el.style.display === 'flex') return;
   var ch = document.getElementById('chargement'); if (ch) ch.style.display = 'none';
@@ -2454,6 +2462,7 @@ function validerFormulaire() {
       dossier: collecterDossier()
     }, function(res) {
       if (res && res.ok) {
+        if (CABINET) document.getElementById('confirm-msg').innerHTML = '\u2713 Dossier transmis au nom de <strong>' + escCab(SESSION.email) + '</strong>. Le client re\u00e7oit un email avec l\u2019acc\u00e8s \u00e0 son espace pour suivre l\u2019avancement et d\u00e9poser ses pi\u00e8ces.';
         document.getElementById('confirm-msg').style.display = 'block';
         document.getElementById('confirm-msg').scrollIntoView({ behavior: 'smooth' });
         btn.textContent = '✓ Envoyé';
@@ -2471,6 +2480,53 @@ function validerFormulaire() {
 // ── Configuration ─────────────────────────────────────────────
 var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwbTEFCrnTOjmhycGdb1ShTln6ntnAi-cSeFyPbmIjqoxBqBZRlKwMc44uJev8Q8HI/exec';
 var SESSION = { email: '', nom: '', token: '' };
+
+// ── Mode cabinet : un collaborateur de TEC AUDIT remplit le formulaire pour un client.
+//    Ouvert depuis l'espace interne (?cabinet=1&client=email) ; la session de l'espace
+//    interne est lue dans le navigateur, le dossier est enregistré au nom du client.
+var CABINET = null;
+function escCab(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function initCabinet() {
+  var q = new URLSearchParams(location.search);
+  if (q.get('cabinet') !== '1') return false;
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem('tec.admin.session') || 'null'); } catch (e) {}
+  var ecran = document.getElementById('login-screen');
+  if (!s || !s.token || !s.exp || s.exp < Date.now()) {
+    ecran.innerHTML = '<div style="max-width:460px;margin:80px auto;background:#fff;padding:28px 32px;border-radius:6px;font-size:15px;line-height:1.6;">' +
+      '<h2 style="margin:0 0 10px;">Saisie par le cabinet</h2><p>Connectez-vous d\u2019abord à l\u2019<a href="/admin/">espace interne</a>, puis relancez « Saisir un dossier pour un client ».</p></div>';
+    return true;
+  }
+  CABINET = { email: s.email, token: s.token, nom: s.nom || s.email };
+  var client = (q.get('client') || '').trim().toLowerCase();
+  ecran.style.display = 'none';
+  document.body.classList.add('logged-in');
+  var bar = document.getElementById('save-bar'); if (bar) bar.style.display = 'flex';
+  var b = document.createElement('div'); b.id = 'cabinet-bar';
+  b.innerHTML = '<span>\uD83C\uDFE2 <strong>Saisie par le cabinet</strong> — ' + escCab(CABINET.nom) + '</span>' +
+    '<label>Email du client <input type="email" id="cabinet-client" value="' + escCab(client) + '" placeholder="client@exemple.fr"></label>' +
+    '<button type="button" onclick="definirClient()">Valider</button><span id="cabinet-etat"></span>';
+  document.body.insertBefore(b, document.body.firstChild);
+  document.getElementById('cabinet-client').addEventListener('keydown', function (e) { if (e.key === 'Enter') definirClient(); });
+  if (client) definirClient();
+  return true;
+}
+function definirClient() {
+  var email = (document.getElementById('cabinet-client').value || '').trim().toLowerCase();
+  var etat = document.getElementById('cabinet-etat');
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { etat.style.color = '#c0392b'; etat.textContent = 'Adresse email du client invalide.'; return; }
+  SESSION.email = email; SESSION.nom = 'Client ' + email; SESSION.token = '';
+  var si = document.getElementById('save-info'); if (si) si.textContent = '\uD83C\uDFE2 ' + CABINET.nom + ' \u2192 client ' + email;
+  etat.style.color = '#2e7d32'; etat.textContent = 'Le dossier sera enregistré au nom de ' + email + '.';
+  if (typeof afficherChargement === 'function') afficherChargement(true);
+  chargerDossier();
+}
+function completerCabinet(payload) {
+  if (!CABINET || !/^(save|load|submit)$/.test(payload.action)) return payload;
+  payload.cabinet = 1; payload.cabinetEmail = CABINET.email; payload.cabinetToken = CABINET.token;
+  return payload;
+}
+
 
 // ── Login ──────────────────────────────────────────────────────
 var LOGIN_ETAPE = 'email'; // 'email' → 'code'
@@ -2544,6 +2600,7 @@ function verifierCode() {
 
 // Appui Entrée sur les champs login
 document.addEventListener('DOMContentLoaded', function() {
+  initCabinet();
   ['login-email','login-code'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener('keydown', function(e) {
@@ -2558,6 +2615,8 @@ var DEMO_MODE = APPS_SCRIPT_URL.indexOf('A_REMPLACER') === 0;
 var DEMO_CODE = '123456';
 
 function callScript(payload, callback) {
+  completerCabinet(payload);
+  if (CABINET && !SESSION.email && /^(save|load|submit)$/.test(payload.action)) { callback({ ok: false, error: 'Indiquez d\u2019abord l\u2019adresse email du client (bandeau jaune).' }); return; }
   if (DEMO_MODE) {
     setTimeout(function() {
       switch (payload.action) {

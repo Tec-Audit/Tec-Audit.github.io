@@ -22,6 +22,7 @@ function api(payload, cb) {
 }
 
 function sessionExpiree() {
+  oublierSessionAdmin();
   if ($('expire').style.display === 'flex') return;
   $('expire').style.display = 'flex';
   $('expire-btn').focus();
@@ -48,12 +49,8 @@ function login() {
   api({ action: 'adminLogin', email: email, motdepasse: mdp }, function (res) {
     if (res && res.ok) {
       SESSION = { email: email.toLowerCase(), nom: res.nom, role: res.role, token: res.token };
-      $('login-screen').style.display = 'none';
-      $('app').style.display = 'flex';
-      $('user-nom').textContent = res.nom;
-      $('user-role').textContent = res.role === 'associe' ? 'Associé' : 'Collaborateur';
-      if (res.role === 'associe') $('tab-entrees').style.display = ''; $('tab-pennylane').style.display = '';
-      chargerDossiers();
+      memoriserSessionAdmin();
+      ouvrirApp();
     } else {
       btn.disabled = false;
       btn.textContent = 'Se connecter';
@@ -130,7 +127,47 @@ function definirMdp() {
 
 function deconnexion() {
   SESSION = { email: '', nom: '', role: '', token: '' };
+  oublierSessionAdmin();
   location.reload();
+}
+
+// ── Session mémorisée dans le navigateur (8 h, comme côté serveur) : plus de
+//    reconnexion à chaque rechargement, et les formulaires en mode cabinet la lisent.
+var CLE_SESSION_ADMIN = 'tec.admin.session';
+function memoriserSessionAdmin() {
+  try { localStorage.setItem(CLE_SESSION_ADMIN, JSON.stringify({ email: SESSION.email, nom: SESSION.nom, role: SESSION.role, token: SESSION.token, exp: Date.now() + 8 * 3600 * 1000 })); } catch (e) {}
+}
+function oublierSessionAdmin() { try { localStorage.removeItem(CLE_SESSION_ADMIN); } catch (e) {} }
+function restaurerSessionAdmin() {
+  try {
+    var s = JSON.parse(localStorage.getItem(CLE_SESSION_ADMIN) || 'null');
+    if (!s || !s.token || !s.exp || s.exp < Date.now()) { oublierSessionAdmin(); return false; }
+    SESSION = { email: s.email, nom: s.nom, role: s.role, token: s.token };
+    ouvrirApp();
+    return true;
+  } catch (e) { return false; }
+}
+function ouvrirApp() {
+  $('login-screen').style.display = 'none';
+  $('app').style.display = 'flex';
+  $('user-nom').textContent = SESSION.nom;
+  $('user-role').textContent = SESSION.role === 'associe' ? 'Associé' : 'Collaborateur';
+  if (SESSION.role === 'associe') $('tab-entrees').style.display = ''; $('tab-pennylane').style.display = '';
+  chargerDossiers();
+}
+
+// ── Saisie d'un dossier pour un client : ouvre le formulaire en mode cabinet ──
+function basculerSaisieCabinet() {
+  var p = $('saisie-cabinet');
+  p.style.display = p.style.display === 'none' || !p.style.display ? 'flex' : 'none';
+  if (p.style.display === 'flex') $('saisie-email').focus();
+}
+function ouvrirSaisieCabinet(parcours) {
+  var email = ($('saisie-email').value || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { $('saisie-email').focus(); $('saisie-email').style.borderColor = '#c0392b'; return; }
+  $('saisie-email').style.borderColor = '';
+  memoriserSessionAdmin();
+  window.open('/' + parcours + '/?cabinet=1&client=' + encodeURIComponent(email), '_blank', 'noopener');
 }
 
 // ── Chargement des données ───────────────────────────────────
@@ -1387,6 +1424,7 @@ function carteEntree(e) {
     ' · ' + (e.parcours === 'nouveau-client' ? 'Nouveau client / reprise' : 'Constitution') +
     (e.pennylane === 'oui' ? ' · <span class="tag warn">déjà sur Pennylane — transfert à demander</span>'
       : e.pennylane === 'non' ? ' · <span class="tag neutre">dossier Pennylane à créer</span>' : '') +
+    (e.saisiPar ? ' · <span class="tag neutre">saisi par le cabinet — ' + esc(e.saisiPar) + '</span>' : '') +
     (e.codeDossier ? ' · dossier <b>' + esc(e.codeDossier) + '</b>' : '') +
     (e.drive ? ' · <button class="lien-pieces" onclick="voirPieces(\'' + esc(e.drive) + '\', this)">📎 pièces jointes</button>' : '');
 
@@ -1620,6 +1658,8 @@ document.addEventListener('DOMContentLoaded', function () {
   $('email-oubli').addEventListener('keydown', function (e) { if (e.key === 'Enter') demanderReinit(); });
   $('mdp2').addEventListener('keydown', function (e) { if (e.key === 'Enter') definirMdp(); });
   verifierLienReinit();
+  restaurerSessionAdmin();
+  $('saisie-email').addEventListener('keydown', function (e) { if (e.key === 'Enter') ouvrirSaisieCabinet('constitution'); });
   ['q'].forEach(function (id) { $(id).addEventListener('input', rendre); });
   // Raccourci « / » : focus sur la recherche depuis n'importe où
   document.addEventListener('keydown', function (e) {

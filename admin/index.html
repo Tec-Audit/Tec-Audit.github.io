@@ -364,6 +364,13 @@
     <div class="filtre"><label for="f-ldm">Statut LDM</label><select id="f-ldm"></select></div>
     <div class="filtre"><label for="f-forme">Forme</label><select id="f-forme"></select></div>
     <button class="btn-ghost" onclick="exporterCSV()">Exporter CSV</button>
+    <button class="btn-ghost" id="btn-saisie" onclick="basculerSaisieCabinet()" title="Remplir un formulaire d'entr&eacute;e &agrave; la place du client">&#65291; Saisir un dossier pour un client</button>
+  </div>
+  <div id="saisie-cabinet" style="display:none;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 20px;background:#fff8e1;border-bottom:1px solid #f0d78a;font-size:13.5px;">
+    <span>Le formulaire s&#8217;ouvre dans un nouvel onglet, &agrave; votre nom ; le dossier est enregistr&eacute; au nom du client, qui re&ccedil;oit l&#8217;acc&egrave;s &agrave; son espace &agrave; la transmission.</span>
+    <input type="email" id="saisie-email" placeholder="email du client" style="padding:6px 9px;border:1px solid #ccc;border-radius:3px;min-width:240px;font:inherit;">
+    <button class="btn-ghost" onclick="ouvrirSaisieCabinet('constitution')">Cr&eacute;ation de soci&eacute;t&eacute;</button>
+    <button class="btn-ghost" onclick="ouvrirSaisieCabinet('nouveau-client')">Reprise d&#8217;un dossier</button>
   </div>
 
   <div class="apercu">
@@ -397,6 +404,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260904b"></script>
+<script src="app.js?v=20260911a"></script>
 </body>
 </html>
