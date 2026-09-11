@@ -282,6 +282,8 @@
           <select id="d-fonction"><option>Gérant(e)</option><option>Président(e)</option><option>Directeur(trice) Général(e)</option><option>Autre</option></select></div>
         <div class="field"><label for="d-civilite">Civilité</label>
           <select id="d-civilite"><option value="">— À préciser —</option><option>Monsieur</option><option>Madame</option></select></div>
+        <div class="field gc2" id="d-via-note" style="display:none;margin:-4px 0 4px;padding:8px 12px;background:#e8eef9;border-left:3px solid #0E4194;border-radius:3px;font-size:13px;color:#0B316F;"></div>
+        <input type="hidden" id="d-via">
         <div class="field"><label for="d-nom">Nom</label><input type="text" id="d-nom"></div>
         <div class="field"><label for="d-prenom">Prénom</label><input type="text" id="d-prenom"></div>
         <div class="field"><label for="d-naiss">Date de naissance</label><input type="date" id="d-naiss"></div>
@@ -621,6 +623,7 @@ function ajouterDirigeant(prefill, index, sirene) {
     '<div class="field"><label for="dir' + i + '-nom">Nom</label><input type="text" id="dir' + i + '-nom" value="' + q(prefill && prefill.nom) + '"></div>' +
     '<div class="field"><label for="dir' + i + '-naiss">Date de naissance</label><input type="date" id="dir' + i + '-naiss"></div>' +
     '<div class="field"><label for="dir' + i + '-nat">Nationalité</label><input type="text" id="dir' + i + '-nat" value="' + q((prefill && prefill.nationalite) || 'Française') + '"></div>' +
+    '<input type="hidden" id="dir' + i + '-via" value="' + q(prefill && prefill.via) + '">' +
     '<div class="field" style="align-self:end;"><button type="button" class="btn btn-secondary" onclick="retirerDirigeant(' + i + ')">Retirer</button></div>';
   document.getElementById('dir-liste').appendChild(div);
   return i;
@@ -631,7 +634,7 @@ function autresDirigeants() {
   for (var i = 0; i < NB_DIR; i++) {
     if (!document.getElementById('dir-row-' + i)) continue;
     var nom = [v('dir' + i + '-prenom'), v('dir' + i + '-nom')].filter(Boolean).join(' ');
-    if (nom) out.push({ nom: nom, texte: [v('dir' + i + '-civilite'), nom].filter(Boolean).join(' ') + (v('dir' + i + '-fonction') ? ' — ' + v('dir' + i + '-fonction') : '') });
+    if (nom) out.push({ nom: nom, texte: [v('dir' + i + '-civilite'), nom].filter(Boolean).join(' ') + (v('dir' + i + '-fonction') ? ' — ' + v('dir' + i + '-fonction') : '') + (v('dir' + i + '-via') ? ' (représentant de ' + v('dir' + i + '-via') + ')' : '') });
   }
   return out;
 }
@@ -648,7 +651,7 @@ function remplirAutresDirigeants(iPrincipal) {
   SIRENE_DIRIGEANTS.forEach(function (d, i) {
     if (i === iPrincipal) return;
     var prenom = prenomPropre(d), nom = nomPropre(d);
-    var k = ajouterDirigeant({ prenom: prenom, nom: nom, fonction: fonctionDepuisQualite(d.qualite, document.getElementById('forme').value),
+    var k = ajouterDirigeant({ prenom: prenom, nom: nom, fonction: fonctionDepuisQualite(d.qualite, document.getElementById('forme').value), via: d.via || '',
       nationalite: d.nationalite || 'Française', civilite: d.genre === 'F' ? 'Madame' : d.genre === 'M' ? 'Monsieur' : '' }, undefined, true);
     if (!d.genre) civiliteDepuisPrenom(prenom, function (civ) { var el = document.getElementById('dir' + k + '-civilite'); if (el && civ) el.value = civ; });
   });
@@ -823,14 +826,20 @@ function prefillSiren() {
       set('naf', e.activite_principale || '');
       // Activité en clair depuis le code NAF (table naf.json)
       onNafInput(document.getElementById('naf'));
-      // Dirigeants : personnes physiques déclarées au registre ; le client choisit le représentant qui signe
-      SIRENE_DIRIGEANTS = (e.dirigeants || []).filter(function (x) { return String(x.type_dirigeant || '').indexOf('physique') > -1; });
-      if (SIRENE_DIRIGEANTS.length) { appliquerDirigeant(0); enrichirDepuisInpi(siren); }
+      // Dirigeants : personnes physiques du registre (hors commissaires aux comptes…) ; quand un
+      // dirigeant est une société, on va chercher qui la représente. Le client choisit le signataire.
+      info.style.display = 'block';
+      info.innerHTML = '✓ <strong>' + escHtml(e.nom_complet || '') + '</strong> — informations pré-remplies depuis le registre national (SIRENE). Lecture des dirigeants…';
+      resoudreDirigeants(e).then(function (liste) {
+        SIRENE_DIRIGEANTS = liste;
+        if (liste.length) { appliquerDirigeant(0); enrichirDepuisInpi(siren); }
+        info.innerHTML = '✓ <strong>' + escHtml(e.nom_complet || '') + '</strong> — informations pré-remplies depuis le registre national (SIRENE). Vérifiez et complétez.' + blocDirigeants() + blocMorales();
+      });
       // N° TVA : FR + clé calculée + SIREN
       var cle = (12 + 3 * (parseInt(siren, 10) % 97)) % 97;
       set('tva', 'FR' + (cle < 10 ? '0' : '') + cle + siren);
       info.style.display = 'block';
-      info.innerHTML = '✓ <strong>' + escHtml(e.nom_complet || '') + '</strong> — informations pré-remplies depuis le registre national (SIRENE). Vérifiez et complétez.' + blocDirigeants();
+      // (bandeau complété par resoudreDirigeants)
     })
     .catch(function () {
       btn.disabled = false; btn.textContent = '🔍 Pré-remplir';
@@ -842,7 +851,36 @@ function set(id, v) { var el = document.getElementById(id); if (el && v) el.valu
 function escHtml(t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
 // ── Dirigeants lus au registre ──
-var SIRENE_DIRIGEANTS = [], BE_PREREMPLI = false;
+var SIRENE_DIRIGEANTS = [], SIRENE_MORALES = [], BE_PREREMPLI = false;
+// Rôles inscrits au registre qui ne sont pas des dirigeants : on les écarte
+function estDirigeantExploitable(d) { return !/commissaire aux comptes|liquidateur|administrateur judiciaire|mandataire judiciaire|contr[oô]leur/i.test(String((d && d.qualite) || '')); }
+// Personnes physiques dirigeantes, y compris les représentants des dirigeants personnes morales
+// (une holding présidente d'une SAS est représentée par son propre gérant, lu au registre)
+function resoudreDirigeants(e) {
+  var tous = e.dirigeants || [];
+  var physiques = tous.filter(function (x) { return /physique/.test(String(x.type_dirigeant || '')) && estDirigeantExploitable(x); });
+  SIRENE_MORALES = tous.filter(function (x) { return /morale/.test(String(x.type_dirigeant || '')) && x.siren && estDirigeantExploitable(x); }).slice(0, 4);
+  return Promise.all(SIRENE_MORALES.map(function (m) {
+    return fetch('https://recherche-entreprises.api.gouv.fr/search?q=' + m.siren + '&page=1&per_page=1')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var s = data.results && data.results[0];
+        if (!s || s.siren !== m.siren) return [];
+        return (s.dirigeants || []).filter(function (x) { return /physique/.test(String(x.type_dirigeant || '')) && estDirigeantExploitable(x); })
+          .map(function (x) { return { nom: x.nom, prenoms: x.prenoms, qualite: m.qualite, via: m.denomination, viaQualite: x.qualite, type_dirigeant: 'personne physique' }; });
+      }).catch(function () { return []; });
+  })).then(function (listes) {
+    var out = physiques.slice();
+    listes.forEach(function (l) { l.forEach(function (x) { out.push(x); }); });
+    return out;
+  });
+}
+function blocMorales() {
+  if (!SIRENE_MORALES.length) return '';
+  var noms = SIRENE_MORALES.map(function (m) { return escHtml(m.denomination) + ' (' + escHtml(m.qualite || 'dirigeant') + ')'; }).join(', ');
+  return '<div style="margin-top:6px;font-size:13px;">Dirigeant' + (SIRENE_MORALES.length > 1 ? 's' : '') + ' personne' + (SIRENE_MORALES.length > 1 ? 's' : '') + ' morale' + (SIRENE_MORALES.length > 1 ? 's' : '') + ' au registre : ' + noms +
+    (SIRENE_DIRIGEANTS.some(function (d) { return d.via; }) ? ' — représentée' + (SIRENE_MORALES.length > 1 ? 's' : '') + ' par les personnes proposées ci-dessus.' : ' — indiquez la personne qui la représente.') + '</div>';
+}
 function nomPropre(d) { return String(d.nom || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim(); }   // « YOUSSEF (SEMAAN) » → « YOUSSEF »
 function prenomPropre(d) { return String(d.prenoms || '').split(/[ ,]+/)[0] || ''; }
 function fonctionDepuisQualite(q, forme) {
@@ -860,6 +898,8 @@ function appliquerDirigeant(i) {
   document.getElementById('d-nom').value = nom;
   document.getElementById('d-prenom').value = prenom;
   document.getElementById('d-fonction').value = fonctionDepuisQualite(d.qualite, document.getElementById('forme').value);
+  document.getElementById('d-via').value = d.via || '';
+  majNoteVia();
   // Civilité : le registre de l'INPI fait foi ; à défaut, le prénom quand il est sans ambiguïté
   if (d.genre) document.getElementById('d-civilite').value = d.genre === 'F' ? 'Madame' : 'Monsieur';
   else civiliteDepuisPrenom(prenom, function (civ) { document.getElementById('d-civilite').value = civ; });
@@ -885,11 +925,18 @@ function enrichirDepuisInpi(siren) {
     appliquerDirigeant(sel ? (parseInt(sel.value, 10) || 0) : 0);
   });
 }
+function majNoteVia() {
+  var via = (document.getElementById('d-via') || {}).value || '', note = document.getElementById('d-via-note');
+  if (!note) return;
+  var fonction = (document.getElementById('d-fonction') || {}).value || '';
+  note.textContent = via ? 'Agit en qualité de représentant de ' + via + (fonction ? ', ' + fonction.toLowerCase() + ' de la société' : '') + '.' : '';
+  note.style.display = via ? '' : 'none';
+}
 function blocDirigeants() {
-  if (SIRENE_DIRIGEANTS.length < 2) return '';
-  return '<div style="margin-top:8px;"><strong>' + SIRENE_DIRIGEANTS.length + ' dirigeants au registre.</strong> Qui sera le représentant qui signe la lettre de mission&nbsp;? ' +
+  if (SIRENE_DIRIGEANTS.length < 2 && !SIRENE_DIRIGEANTS.some(function (d) { return d.via; })) return '';
+  return '<div style="margin-top:8px;"><strong>' + SIRENE_DIRIGEANTS.length + ' dirigeant' + (SIRENE_DIRIGEANTS.length > 1 ? 's' : '') + ' au registre.</strong> Qui sera le représentant qui signe la lettre de mission&nbsp;? ' +
     '<select id="dir-choix" onchange="appliquerDirigeant(parseInt(this.value, 10))" style="margin-left:6px;">' +
-    SIRENE_DIRIGEANTS.map(function (d, i) { return '<option value="' + i + '">' + escHtml(prenomPropre(d) + ' ' + nomPropre(d)) + (d.qualite ? ' — ' + escHtml(d.qualite) : '') + '</option>'; }).join('') +
+    SIRENE_DIRIGEANTS.map(function (d, i) { return '<option value="' + i + '">' + escHtml(prenomPropre(d) + ' ' + nomPropre(d)) + (d.qualite ? ' — ' + escHtml(d.qualite) : '') + (d.via ? ' (représentant de ' + escHtml(d.via) + ')' : '') + '</option>'; }).join('') +
     '</select></div>';
 }
 
@@ -1009,7 +1056,7 @@ function restaurerDossier(data) {
       if (el.type === 'checkbox' && el.onchange) el.onchange();
     }
   });
-  setTimeout(function () { onComptaChange(); onSocialChange(); onAutreChange(); }, 150);
+  setTimeout(function () { onComptaChange(); onSocialChange(); onAutreChange(); if (typeof majNoteVia === 'function') majNoteVia(); }, 150);
 }
 
 function sauvegarderDossier(showMsg) {
@@ -1082,7 +1129,7 @@ function buildSummary() {
   html += row('Activité', v('activite') + (v('naf') !== '—' ? ' (' + v('naf') + ')' : ''));
   html += row('Clôture', v('cloture')) + row('Imposition', v('regime-is')) + row('TVA', v('regime-tva'));
   html += sec('Dirigeant');
-  html += row('Identité', v('d-civilite') + ' ' + v('d-prenom') + ' ' + v('d-nom') + ' — ' + v('d-fonction'));
+  html += row('Identité', v('d-civilite') + ' ' + v('d-prenom') + ' ' + v('d-nom') + ' — ' + v('d-fonction') + (v('d-via') && v('d-via') !== '—' ? ', représentant de ' + v('d-via') : ''));
   if (listeDirigeants()) html += row('Autres dirigeants', listeDirigeants());
   if (!estEI()) html += row('Bénéficiaires effectifs', listeBE() || '—');
   html += row('Contact', v('d-tel') + ' · ' + v('d-email'));
@@ -1139,7 +1186,7 @@ function generateRecapPDF() {
   ligne('Activité', v('activite') + ' (' + v('naf') + ')'); ligne('Clôture', v('cloture'));
   ligne('Imposition', v('regime-is')); ligne('Régime TVA', v('regime-tva'));
   titre('Dirigeant');
-  ligne('Identité', v('d-civilite') + ' ' + v('d-prenom') + ' ' + v('d-nom') + ' — ' + v('d-fonction'));
+  ligne('Identité', v('d-civilite') + ' ' + v('d-prenom') + ' ' + v('d-nom') + ' — ' + v('d-fonction') + (v('d-via') && v('d-via') !== '—' ? ', représentant de ' + v('d-via') : ''));
   if (listeDirigeants()) ligne('Autres dirigeants', listeDirigeants());
   if (!estEI()) ligne('Bénéficiaires effectifs', listeBE() || '—');
   ligne('Naissance', v('d-naiss') + ' à ' + v('d-lieu')); ligne('Adresse', v('d-adresse') + ' ' + v('d-cp') + ' ' + v('d-ville'));
@@ -1182,7 +1229,7 @@ function validerFormulaire() {
   add('Activité', v('activite') + (v('naf') !== '—' ? ' (' + v('naf') + ')' : ''));
   add('Capital', v('capital')); add('Clôture', v('cloture'));
   add('Imposition', v('regime-is')); add('Régime TVA', v('regime-tva'));
-  add('Dirigeant', v('d-civilite') + ' ' + v('d-prenom') + ' ' + v('d-nom') + ' — ' + v('d-fonction'));
+  add('Dirigeant', v('d-civilite') + ' ' + v('d-prenom') + ' ' + v('d-nom') + ' — ' + v('d-fonction') + (v('d-via') && v('d-via') !== '—' ? ', représentant de ' + v('d-via') : ''));
   if (listeDirigeants()) add('Autres dirigeants', listeDirigeants());
   if (!estEI()) add('Bénéficiaires effectifs', listeBE() || '—');
   add('Déjà sur Pennylane', rv('pennylane'));
