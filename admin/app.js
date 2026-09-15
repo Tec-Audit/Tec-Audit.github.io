@@ -28,6 +28,42 @@ function sessionExpiree() {
   $('expire-btn').focus();
 }
 
+// Postes d'honoraires : mêmes libellés et mêmes clés que le serveur
+var POSTES = [
+  { cle: 'hCompta',    colonne: 'Honoraires compta-fiscal', libelle: 'Comptabilité et fiscal' },
+  { cle: 'hOutils',    colonne: 'Débours outils digitaux',  libelle: 'Débours outils digitaux' },
+  { cle: 'hJuridique', colonne: 'Honoraires juridique',     libelle: 'Juridique' }
+];
+function nombre(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.,-]/g, '').replace(',', '.')); return isNaN(n) ? null : n; }
+function montantFr(n) { return n === null ? '' : n.toLocaleString('fr-FR', { maximumFractionDigits: 2 }); }
+// Champs de ventilation + total calculé en direct. `prefixe` évite les collisions d'identifiants.
+function champsPostes(prefixe, valeurs) {
+  return POSTES.map(function (p) {
+    var v = valeurs ? valeurs[p.cle] : '';
+    return '<label>' + esc(p.libelle) + ' € HT <input type="number" min="0" step="1" id="' + prefixe + p.cle +
+      '" value="' + esc(v == null ? '' : v) + '" style="width:104px;" oninput="majTotalPostes(\'' + prefixe + '\')"></label>';
+  }).join('') + '<span class="maj" id="' + prefixe + 'total" aria-live="polite"></span>';
+}
+function totalPostes(prefixe) {
+  var total = null;
+  POSTES.forEach(function (p) {
+    var n = nombre(($(prefixe + p.cle) || {}).value);
+    if (n !== null) total = (total || 0) + n;
+  });
+  return total;
+}
+function majTotalPostes(prefixe) {
+  var el = $(prefixe + 'total'); if (!el) return;
+  var t = totalPostes(prefixe);
+  el.textContent = t === null ? '' : 'Total ' + montantFr(t) + ' € HT';
+  el.className = 'maj';
+}
+function valeursPostes(prefixe) {
+  var out = {};
+  POSTES.forEach(function (p) { out[p.cle] = ($(prefixe + p.cle) || {}).value || ''; });
+  return out;
+}
+
 function $(id) { return document.getElementById(id); }
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -400,7 +436,7 @@ function ficheDossier(l) {
     ['SIRET', val(l, 'SIRET')], ['Ville', [val(l, 'CP'), val(l, 'Ville')].filter(Boolean).join(' ')],
     ['Activité', val(l, 'Activité')], ['Clôture', val(l, 'Clôture')],
     ['Honoraires', (SESSION.role === 'associe' && val(l, 'Honoraires HT'))
-      ? val(l, 'Honoraires HT') + ' € HT / ' + val(l, 'Périodicité') : ''],
+      ? val(l, 'Honoraires HT') + ' € HT / ' + val(l, 'Périodicité') + detailPostes(l) : ''],
     ['Associé', val(l, 'Associé responsable')], ['Collaborateur', val(l, 'Collaborateur')]
   ].filter(function (c) { return c[1]; });
 
@@ -426,6 +462,7 @@ function ficheDossier(l) {
     blocCompletude(l, lignesSheet) +
     blocContact(l, lignesSheet) +
     (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
+    (SESSION.role === 'associe' ? blocHonoraires(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
     blocLdmRetour(l, lignesSheet) +
   '</div>';
@@ -992,6 +1029,51 @@ function enregistrerContact(ligne, btn) {
 }
 
 // ── Lettre de mission ────────────────────────────────────────
+// Détail de la ventilation, en clair sous le total
+function detailPostes(l) {
+  var parts = POSTES.filter(function (p) { return DATA.idx[p.colonne] !== undefined && val(l, p.colonne); })
+    .map(function (p) { return p.libelle + ' ' + val(l, p.colonne) + ' €'; });
+  return parts.length ? ' (' + parts.join(' · ') + ')' : '';
+}
+
+// Honoraires modifiables tant que la lettre de mission n'est pas partie
+function blocHonoraires(l, ligne) {
+  var valeurs = {};
+  POSTES.forEach(function (p) { valeurs[p.cle] = DATA.idx[p.colonne] !== undefined ? val(l, p.colonne) : ''; });
+  var per = val(l, 'Périodicité');
+  var opts = ['', 'Mensuelle', 'Trimestrielle', 'Annuelle'].map(function (o) {
+    return '<option value="' + esc(o) + '"' + (o === per ? ' selected' : '') + '>' + (o || '—') + '</option>';
+  }).join('');
+  return '<div class="actions ldm-bloc">' +
+    '<b style="color:var(--blue-dark);">Honoraires</b>' +
+    champsPostes('hp-' + ligne + '-', valeurs) +
+    '<label>Facturation <select id="hper-' + ligne + '" style="width:118px;">' + opts + '</select></label>' +
+    '<button class="btn-rep" onclick="enregistrerHonoraires(' + ligne + ', this)">Enregistrer</button>' +
+    '<span class="maj" role="status" aria-live="polite"></span></div>';
+}
+
+function enregistrerHonoraires(ligne, btn) {
+  var msg = btn.parentNode.querySelector('.maj[role="status"]');
+  var p = valeursPostes('hp-' + ligne + '-');
+  btn.disabled = true; msg.textContent = '…'; msg.className = 'maj';
+  api({ action: 'adminHonoraires', email: SESSION.email, token: SESSION.token, ligne: ligne,
+        hCompta: p.hCompta, hOutils: p.hOutils, hJuridique: p.hJuridique,
+        periodicite: ($('hper-' + ligne) || {}).value || '' }, function (res) {
+    btn.disabled = false;
+    if (res && res.ok) {
+      msg.textContent = '✓ enregistré'; msg.className = 'maj ok';
+      DATA.lignes.forEach(function (l) {
+        if (l[DATA.iLigne] !== ligne) return;
+        POSTES.forEach(function (po) { if (DATA.idx[po.colonne] !== undefined) l[DATA.idx[po.colonne]] = p[po.cle]; });
+        if (DATA.idx['Honoraires HT'] !== undefined) l[DATA.idx['Honoraires HT']] = res.total;
+        if (DATA.idx['Périodicité'] !== undefined) l[DATA.idx['Périodicité']] = ($('hper-' + ligne) || {}).value || '';
+      });
+    } else {
+      msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko';
+    }
+  });
+}
+
 function blocLDM(l, ligne) {
   var assoc = val(l, 'Associé responsable') || 'Marc BIJAOUI';
   var opts = ['Marc BIJAOUI', 'Samy HADDAD'].map(function (s) {
@@ -1487,10 +1569,11 @@ function actionEntree(e) {
       '<label>Collaborateur <select id="cc-' + ligne + '"><option value="">— à affecter —</option>' +
         Object.keys(collabs).sort().map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('') +
       '</select></label>' +
-      '<label>Honoraires € HT <input type="number" id="ch-' + ligne + '" style="width:96px;"></label>' +
       '<label>Facturation <select id="cper-' + ligne + '" style="width:118px;">' +
         '<option value="">—</option><option>Mensuelle</option><option>Trimestrielle</option><option>Annuelle</option>' +
       '</select></label>' +
+      '</div><div class="lettre-actions" style="margin-top:6px;">' +
+      '<b style="font-weight:600;">Honoraires</b> ' + champsPostes('cp-' + ligne + '-') +
       '<button class="btn-envoyer" onclick="creerDossier(' + ligne + ', this)">➕ Créer le dossier</button>' +
       '<span class="maj" role="status" aria-live="polite"></span></div></div>';
   }
@@ -1534,12 +1617,13 @@ function allerAuDossier(denomination) {
 }
 
 function creerDossier(ligne, btn) {
-  var msg = btn.parentNode.querySelector('.maj');
+  var msg = btn.parentNode.querySelector('.maj[role="status"]');
   btn.disabled = true; btn.textContent = 'Création…';
   api({ action: 'adminCreerDossier', email: SESSION.email, token: SESSION.token, ligne: ligne,
         code: $('cd-' + ligne).value, associe: $('ca-' + ligne).value,
-        collaborateur: $('cc-' + ligne).value, honoraires: $('ch-' + ligne).value,
-        periodicite: $('cper-' + ligne).value },
+        collaborateur: $('cc-' + ligne).value, periodicite: $('cper-' + ligne).value,
+        hCompta: $('cp-' + ligne + '-hCompta').value, hOutils: $('cp-' + ligne + '-hOutils').value,
+        hJuridique: $('cp-' + ligne + '-hJuridique').value },
     function (res) {
       btn.disabled = false; btn.textContent = '➕ Créer le dossier';
       if (res && res.ok) {
