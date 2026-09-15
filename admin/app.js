@@ -11,6 +11,7 @@ var LIGNE_OUVERTE = null;
 
 function api(payload, cb) {
   var debut = Date.now();
+  payload.t0 = debut;   // permet au serveur de mesurer le temps passé avant lui
   fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) })
     .then(function (r) { return r.json(); })
     .then(function (res) {
@@ -237,8 +238,11 @@ function ouvrirApp() {
   $('user-nom').textContent = SESSION.nom;
   $('user-role').textContent = SESSION.role === 'associe' ? 'Associé' : 'Collaborateur';
   if (SESSION.role === 'associe') $('tab-entrees').style.display = ''; $('tab-pennylane').style.display = '';
-  chargerDossiers();
-  if (SESSION.role === 'associe') setTimeout(function () { chargerEntrees(true); }, 300);
+  chargerDossiers(function () {
+    // Apps Script exécute les requêtes d'un même utilisateur l'une après l'autre :
+    // lancer le compteur en parallèle ferait attendre la liste des dossiers.
+    if (SESSION.role === 'associe') chargerEntrees(true);
+  });
 }
 
 // ── Saisie d'un dossier pour un client : ouvre le formulaire en mode cabinet ──
@@ -256,7 +260,7 @@ function ouvrirSaisieCabinet(parcours) {
 }
 
 // ── Chargement des données ───────────────────────────────────
-function chargerDossiers() {
+function chargerDossiers(ensuite) {
   var cache = dossiersMemorises();
   if (cache) {
     installerDossiers(cache);              // affichage immédiat
@@ -267,6 +271,7 @@ function chargerDossiers() {
   api({ action: 'adminDossiers', email: SESSION.email, token: SESSION.token }, function (res) {
     $('loading').style.display = 'none';
     if (!res || !res.ok) {
+      if (ensuite) ensuite();
       if (cache) { $('avis').innerHTML = '<div class="alerte">⚠ Actualisation impossible : ' + esc((res && res.error) || 'erreur') + '. La liste ci-dessous date de votre dernière consultation.</div>'; return; }
       alert('Chargement impossible : ' + ((res && res.error) || 'erreur'));
       return;
@@ -281,6 +286,7 @@ function chargerDossiers() {
     installerDossiers(res);
     memoriserDossiers(res);
     $('avis').innerHTML = res.avertissement ? '<div class="alerte">⚠ ' + esc(res.avertissement) + '</div>' : '';
+    if (ensuite) ensuite();
   });
 }
 
