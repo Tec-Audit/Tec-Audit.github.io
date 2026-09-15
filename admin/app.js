@@ -18,13 +18,13 @@ function api(payload, cb) {
       console.debug('portail ' + ((Date.now() - debut) / 1000).toFixed(1).replace('.', ',') + ' s · ' + payload.action);
       return res;
     })
+    .catch(function (e) { return { ok: false, error: 'Erreur réseau : ' + e.message }; })
     .then(function (res) {
       // Une session expirée interrompt tout : on le dit clairement plutôt que
       // de laisser l'utilisateur cliquer dans le vide.
       if (res && !res.ok && /Session expirée/.test(res.error || '')) { sessionExpiree(); return; }
-      cb(res);
-    })
-    .catch(function (e) { cb({ ok: false, error: 'Erreur réseau : ' + e.message }); });
+      cb(res);   // hors du catch : une erreur d'affichage garde sa trace dans la console
+    });
 }
 
 function sessionExpiree() {
@@ -220,6 +220,13 @@ function chargerDossiers() {
     $('loading').style.display = 'none';
     if (!res || !res.ok) {
       alert('Chargement impossible : ' + ((res && res.error) || 'erreur'));
+      return;
+    }
+    if (!res.colonnes || !res.lignes) {
+      console.error('adminDossiers : réponse inattendue', res);
+      alert('Le serveur a répondu sans la liste des dossiers.\n\n' +
+            'Clés reçues : ' + Object.keys(res).join(', ') + '\n' +
+            'Rechargez la page (⌘⇧R). Si cela se reproduit, envoyez cette fenêtre à Emmanuel.');
       return;
     }
     DATA.colonnes = res.colonnes;
