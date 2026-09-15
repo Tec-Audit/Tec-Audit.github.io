@@ -1473,7 +1473,17 @@ function rendreIncomplets(dossiers) {
     }).join('') + '</table></div>';
 }
 
+var ENTREES_LE = 0;
 function chargerEntrees(discret) {
+  if (!discret && ENTREES.entrees && ENTREES.entrees.length !== undefined && Date.now() - ENTREES_LE < 120000) {
+    document.querySelectorAll('.tab').forEach(function (t) {
+      var actif = t.dataset.vue === 'entrees';
+      t.classList.toggle('active', actif);
+      t.setAttribute('aria-selected', actif ? 'true' : 'false');
+    });
+    rendreEntrees();
+    return;
+  }
   if (!discret) {
     document.querySelectorAll('.tab').forEach(function (t) {
       var actif = t.dataset.vue === 'entrees';
@@ -1488,6 +1498,7 @@ function chargerEntrees(discret) {
       return;
     }
     ENTREES = res;
+    ENTREES_LE = Date.now();
     majOngletEntrees();
     if (!discret || VUE === 'entrees') rendreEntrees();
   });
