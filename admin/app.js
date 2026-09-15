@@ -268,7 +268,8 @@ function chargerDossiers(ensuite) {
   } else {
     $('loading').style.display = 'flex';   // première visite : on attend le serveur
   }
-  api({ action: 'adminDossiers', email: SESSION.email, token: SESSION.token }, function (res) {
+  api({ action: 'adminDossiers', email: SESSION.email, token: SESSION.token,
+        avecPipeline: (ensuite && SESSION.role === 'associe') ? 1 : 0 }, function (res) {
     $('loading').style.display = 'none';
     if (!res || !res.ok) {
       if (ensuite) ensuite();
@@ -286,7 +287,14 @@ function chargerDossiers(ensuite) {
     installerDossiers(res);
     memoriserDossiers(res);
     $('avis').innerHTML = res.avertissement ? '<div class="alerte">⚠ ' + esc(res.avertissement) + '</div>' : '';
-    if (ensuite) ensuite();
+    // Le pipeline a voyagé avec la liste : plus d'aller-retour à faire.
+    if (res.pipeline && res.pipeline.ok) {
+      ENTREES = res.pipeline;
+      ENTREES_LE = Date.now();
+      memoriserEntrees(res.pipeline);
+      majOngletEntrees();
+      if (VUE === 'entrees') rendreEntrees();
+    } else if (ensuite) ensuite();
   });
 }
 
