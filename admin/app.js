@@ -18,7 +18,8 @@ function api(payload, cb) {
       // dans Chrome : on utilise console.log pour que la ligne apparaisse).
       var duree = (Date.now() - debut) / 1000;
       var poids = Math.round(JSON.stringify(res || '').length / 1024);
-      console.log('portail · ' + payload.action + ' · ' + duree.toFixed(1).replace('.', ',') + ' s · ' + poids + ' Ko');
+      var detail = (res && res.ms) ? ' · serveur ' + JSON.stringify(res.ms) : '';
+      console.log('portail · ' + payload.action + ' · ' + duree.toFixed(1).replace('.', ',') + ' s · ' + poids + ' Ko' + detail);
       return res;
     })
     .catch(function (e) { return { ok: false, error: 'Erreur réseau : ' + e.message }; })
@@ -179,10 +180,48 @@ function deconnexion() {
 // ── Session mémorisée dans le navigateur (8 h, comme côté serveur) : plus de
 //    reconnexion à chaque rechargement, et les formulaires en mode cabinet la lisent.
 var CLE_SESSION_ADMIN = 'tec.admin.session';
+
+// Le classeur met une dizaine de secondes à répondre. Plutôt que d'attendre
+// devant un écran vide, on réaffiche la liste de la dernière consultation et on
+// la remplace dès que le serveur a répondu. Effacée à la déconnexion.
+var CLE_DOSSIERS = 'tec.admin.dossiers';
+function memoriserDossiers(res) {
+  try {
+    localStorage.setItem(CLE_DOSSIERS, JSON.stringify({
+      email: SESSION.email, le: Date.now(),
+      colonnes: res.colonnes, lignes: res.lignes, role: res.role, nom: res.nom
+    }));
+  } catch (e) {}   // quota dépassé : on se passe du cache, sans rien casser
+}
+function oublierDossiers() { try { localStorage.removeItem(CLE_DOSSIERS); } catch (e) {} }
+function dossiersMemorises() {
+  try {
+    var c = JSON.parse(localStorage.getItem(CLE_DOSSIERS) || 'null');
+    if (!c || c.email !== SESSION.email || !c.colonnes || !c.lignes) return null;
+    if (Date.now() - c.le > 8 * 3600 * 1000) { oublierDossiers(); return null; }
+    return c;
+  } catch (e) { return null; }
+}
+function installerDossiers(res) {
+  DATA.colonnes = res.colonnes;
+  DATA.lignes = res.lignes;
+  DATA.idx = {};
+  res.colonnes.forEach(function (c, i) { DATA.idx[c] = i; });
+  DATA.iLigne = res.colonnes.length;   // n° de ligne ajouté en fin
+  remplirFiltres();
+  rendre();
+}
+function messageActualisation(le) {
+  var el = $('avis');
+  if (!el) return;
+  var h = new Date(le).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  el.innerHTML = '<div class="alerte" style="background:#eef3fb;border-color:#0E4194;color:#0B316F;">' +
+    'Liste affichée depuis votre dernière consultation de ' + h + ' — actualisation en cours…</div>';
+}
 function memoriserSessionAdmin() {
   try { localStorage.setItem(CLE_SESSION_ADMIN, JSON.stringify({ email: SESSION.email, nom: SESSION.nom, role: SESSION.role, token: SESSION.token, exp: Date.now() + 8 * 3600 * 1000 })); } catch (e) {}
 }
-function oublierSessionAdmin() { try { localStorage.removeItem(CLE_SESSION_ADMIN); } catch (e) {} }
+function oublierSessionAdmin() { try { localStorage.removeItem(CLE_SESSION_ADMIN); } catch (e) {} oublierDossiers(); }
 function restaurerSessionAdmin() {
   try {
     var s = JSON.parse(localStorage.getItem(CLE_SESSION_ADMIN) || 'null');
@@ -218,27 +257,29 @@ function ouvrirSaisieCabinet(parcours) {
 
 // ── Chargement des données ───────────────────────────────────
 function chargerDossiers() {
-  $('loading').style.display = 'flex';
+  var cache = dossiersMemorises();
+  if (cache) {
+    installerDossiers(cache);              // affichage immédiat
+    messageActualisation(cache.le);
+  } else {
+    $('loading').style.display = 'flex';   // première visite : on attend le serveur
+  }
   api({ action: 'adminDossiers', email: SESSION.email, token: SESSION.token }, function (res) {
     $('loading').style.display = 'none';
     if (!res || !res.ok) {
+      if (cache) { $('avis').innerHTML = '<div class="alerte">⚠ Actualisation impossible : ' + esc((res && res.error) || 'erreur') + '. La liste ci-dessous date de votre dernière consultation.</div>'; return; }
       alert('Chargement impossible : ' + ((res && res.error) || 'erreur'));
       return;
     }
-    if (!res.colonnes || !res.lignes) {
+    if (!res || !res.colonnes || !res.lignes) {
       console.error('adminDossiers : réponse inattendue', res);
       alert('Le serveur a répondu sans la liste des dossiers.\n\n' +
             'Clés reçues : ' + Object.keys(res).join(', ') + '\n' +
             'Rechargez la page (⌘⇧R). Si cela se reproduit, envoyez cette fenêtre à Emmanuel.');
       return;
     }
-    DATA.colonnes = res.colonnes;
-    DATA.lignes = res.lignes;
-    DATA.idx = {};
-    res.colonnes.forEach(function (c, i) { DATA.idx[c] = i; });
-    DATA.iLigne = res.colonnes.length; // n° de ligne ajouté en fin
-    remplirFiltres();
-    rendre();
+    installerDossiers(res);
+    memoriserDossiers(res);
     $('avis').innerHTML = res.avertissement ? '<div class="alerte">⚠ ' + esc(res.avertissement) + '</div>' : '';
   });
 }
