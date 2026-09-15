@@ -14,8 +14,11 @@ function api(payload, cb) {
   fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) })
     .then(function (r) { return r.json(); })
     .then(function (res) {
-      // Mesure visible dans la console : « portail 1,8 s · adminDossiers »
-      console.debug('portail ' + ((Date.now() - debut) / 1000).toFixed(1).replace('.', ',') + ' s · ' + payload.action);
+      // Mesure visible dans la console (console.debug est masqué par défaut
+      // dans Chrome : on utilise console.log pour que la ligne apparaisse).
+      var duree = (Date.now() - debut) / 1000;
+      var poids = Math.round(JSON.stringify(res || '').length / 1024);
+      console.log('portail · ' + payload.action + ' · ' + duree.toFixed(1).replace('.', ',') + ' s · ' + poids + ' Ko');
       return res;
     })
     .catch(function (e) { return { ok: false, error: 'Erreur réseau : ' + e.message }; })
