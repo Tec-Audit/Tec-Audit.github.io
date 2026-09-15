@@ -268,11 +268,14 @@ function chargerDossiers(ensuite) {
   } else {
     $('loading').style.display = 'flex';   // première visite : on attend le serveur
   }
+  var avecPipeline = !!(ensuite && SESSION.role === 'associe');
+  if (avecPipeline) ENTREES_EN_VOL = true;   // le pipeline arrive avec la liste
   api({ action: 'adminDossiers', email: SESSION.email, token: SESSION.token,
-        avecPipeline: (ensuite && SESSION.role === 'associe') ? 1 : 0 }, function (res) {
+        avecPipeline: avecPipeline ? 1 : 0 }, function (res) {
+    if (avecPipeline) ENTREES_EN_VOL = false;
     $('loading').style.display = 'none';
     if (!res || !res.ok) {
-      if (ensuite) ensuite();
+      if (ensuite && !avecPipeline) ensuite();
       if (cache) { $('avis').innerHTML = '<div class="alerte">⚠ Actualisation impossible : ' + esc((res && res.error) || 'erreur') + '. La liste ci-dessous date de votre dernière consultation.</div>'; return; }
       alert('Chargement impossible : ' + ((res && res.error) || 'erreur'));
       return;
@@ -293,7 +296,7 @@ function chargerDossiers(ensuite) {
       ENTREES_LE = Date.now();
       memoriserEntrees(res.pipeline);
       majOngletEntrees();
-      if (VUE === 'entrees') rendreEntrees();
+      if (VUE === 'entrees') rendreEntrees();   // l'onglet ouvert pendant l'attente se remplit ici
     } else if (ensuite) ensuite();
   });
 }
