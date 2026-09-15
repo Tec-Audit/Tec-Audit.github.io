@@ -1341,6 +1341,7 @@ function chargerPennylane(mode) {
   $('liste').innerHTML = '<p class="vide">' + (mode === 'rapprocher'
     ? 'Interrogation de Pennylane et rapprochement par SIREN… (quelques secondes)' : 'Chargement…') + '</p>';
   api({ action: 'adminPennylane', email: SESSION.email, token: SESSION.token, mode: mode }, function (res) {
+    if (VUE !== 'pennylane') return;   // la vue a changé pendant l'attente
     if (!res || !res.ok) {
       $('liste').innerHTML = '<div class="alerte">⚠ ' + esc((res && res.error) || 'Erreur') + '</div>' +
         '<div class="pl-tete"><span></span><button class="btn-envoyer" onclick="chargerPennylane(\'rapprocher\')">🔄 Réessayer</button></div>';
@@ -1452,6 +1453,7 @@ function chargerIncomplets() {
   });
   $('liste').innerHTML = '<p class="vide">Chargement…</p>';
   api({ action: 'adminIncomplets', email: SESSION.email, token: SESSION.token }, function (res) {
+    if (VUE !== 'incomplets') return;   // la vue a changé pendant l'attente
     if (!res || !res.ok) { $('liste').innerHTML = '<div class="alerte">⚠ ' + esc((res && res.error) || 'Erreur') + '</div>'; return; }
     rendreIncomplets(res.dossiers);
   });
@@ -1494,13 +1496,13 @@ function chargerEntrees(discret) {
   }
   api({ action: 'adminEntrees', email: SESSION.email, token: SESSION.token }, function (res) {
     if (!res || !res.ok) {
-      if (!discret) $('liste').innerHTML = '<div class="alerte">' + esc((res && res.error) || 'Erreur') + '</div>';
+      if (!discret && VUE === 'entrees') $('liste').innerHTML = '<div class="alerte">' + esc((res && res.error) || 'Erreur') + '</div>';
       return;
     }
     ENTREES = res;
     ENTREES_LE = Date.now();
     majOngletEntrees();
-    if (!discret || VUE === 'entrees') rendreEntrees();
+    if (VUE === 'entrees') rendreEntrees();   // la vue a pu changer pendant l'attente
   });
 }
 
