@@ -10,8 +10,14 @@ var TRI = { col: 'Dénomination', dir: 1 };
 var LIGNE_OUVERTE = null;
 
 function api(payload, cb) {
+  var debut = Date.now();
   fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) })
     .then(function (r) { return r.json(); })
+    .then(function (res) {
+      // Mesure visible dans la console : « portail 1,8 s · adminDossiers »
+      console.debug('portail ' + ((Date.now() - debut) / 1000).toFixed(1).replace('.', ',') + ' s · ' + payload.action);
+      return res;
+    })
     .then(function (res) {
       // Une session expirée interrompt tout : on le dit clairement plutôt que
       // de laisser l'utilisateur cliquer dans le vide.
@@ -190,6 +196,7 @@ function ouvrirApp() {
   $('user-role').textContent = SESSION.role === 'associe' ? 'Associé' : 'Collaborateur';
   if (SESSION.role === 'associe') $('tab-entrees').style.display = ''; $('tab-pennylane').style.display = '';
   chargerDossiers();
+  if (SESSION.role === 'associe') setTimeout(function () { chargerEntrees(true); }, 300);
 }
 
 // ── Saisie d'un dossier pour un client : ouvre le formulaire en mode cabinet ──
@@ -1409,18 +1416,36 @@ function rendreIncomplets(dossiers) {
     }).join('') + '</table></div>';
 }
 
-function chargerEntrees() {
-  document.querySelectorAll('.tab').forEach(function (t) {
-    var actif = t.dataset.vue === 'entrees';
-    t.classList.toggle('active', actif);
-    t.setAttribute('aria-selected', actif ? 'true' : 'false');
-  });
-  $('liste').innerHTML = '<p class="vide">Chargement…</p>';
+function chargerEntrees(discret) {
+  if (!discret) {
+    document.querySelectorAll('.tab').forEach(function (t) {
+      var actif = t.dataset.vue === 'entrees';
+      t.classList.toggle('active', actif);
+      t.setAttribute('aria-selected', actif ? 'true' : 'false');
+    });
+    $('liste').innerHTML = '<p class="vide">Chargement…</p>';
+  }
   api({ action: 'adminEntrees', email: SESSION.email, token: SESSION.token }, function (res) {
-    if (!res || !res.ok) { $('liste').innerHTML = '<div class="alerte">' + esc((res && res.error) || 'Erreur') + '</div>'; return; }
+    if (!res || !res.ok) {
+      if (!discret) $('liste').innerHTML = '<div class="alerte">' + esc((res && res.error) || 'Erreur') + '</div>';
+      return;
+    }
     ENTREES = res;
-    rendreEntrees();
+    majOngletEntrees();
+    if (!discret || VUE === 'entrees') rendreEntrees();
   });
+}
+
+// Le nombre de dossiers à traiter s'affiche sur l'onglet dès la connexion,
+// sans attendre que l'associé ouvre la vue.
+function majOngletEntrees() {
+  var t = $('tab-entrees');
+  if (!t) return;
+  var n = (ENTREES.entrees || []).filter(function (e) {
+    var c = etapeCourante(e);
+    return c && (c.action || c.alerte);
+  }).length;
+  t.textContent = 'Nouveaux dossiers' + (n ? ' (' + n + ')' : '');
 }
 
 // Chaîne d'étapes d'une entrée, selon son parcours
@@ -1481,8 +1506,7 @@ function rendreEntrees() {
   html += groupe('🟢 Terminés', termines, '', true);
   $('liste').innerHTML = html;
 
-  var t = $('tab-entrees');
-  t.textContent = 'Nouveaux dossiers' + (aTraiter.length ? ' (' + aTraiter.length + ')' : '');
+  majOngletEntrees();
 }
 
 function groupe(titre, L, aide, replie) {
