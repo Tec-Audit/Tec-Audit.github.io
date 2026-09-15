@@ -222,7 +222,7 @@ function messageActualisation(le) {
 function memoriserSessionAdmin() {
   try { localStorage.setItem(CLE_SESSION_ADMIN, JSON.stringify({ email: SESSION.email, nom: SESSION.nom, role: SESSION.role, token: SESSION.token, exp: Date.now() + 8 * 3600 * 1000 })); } catch (e) {}
 }
-function oublierSessionAdmin() { try { localStorage.removeItem(CLE_SESSION_ADMIN); } catch (e) {} oublierDossiers(); }
+function oublierSessionAdmin() { try { localStorage.removeItem(CLE_SESSION_ADMIN); } catch (e) {} oublierDossiers(); oublierEntrees(); }
 function restaurerSessionAdmin() {
   try {
     var s = JSON.parse(localStorage.getItem(CLE_SESSION_ADMIN) || 'null');
@@ -1475,32 +1475,52 @@ function rendreIncomplets(dossiers) {
     }).join('') + '</table></div>';
 }
 
-var ENTREES_LE = 0;
+// Comme la liste des dossiers : on montre ce qu'on sait déjà, on actualise derrière.
+var ENTREES_LE = 0, ENTREES_EN_VOL = false;
+var CLE_ENTREES = 'tec.admin.entrees';
+function memoriserEntrees(res) {
+  try { localStorage.setItem(CLE_ENTREES, JSON.stringify({ email: SESSION.email, le: Date.now(), res: res })); } catch (e) {}
+}
+function oublierEntrees() { try { localStorage.removeItem(CLE_ENTREES); } catch (e) {} }
+function entreesMemorisees() {
+  try {
+    var c = JSON.parse(localStorage.getItem(CLE_ENTREES) || 'null');
+    if (!c || c.email !== SESSION.email || !c.res || !c.res.entrees) return null;
+    if (Date.now() - c.le > 8 * 3600 * 1000) { oublierEntrees(); return null; }
+    return c;
+  } catch (e) { return null; }
+}
+
 function chargerEntrees(discret) {
-  if (!discret && ENTREES.entrees && ENTREES.entrees.length !== undefined && Date.now() - ENTREES_LE < 120000) {
-    document.querySelectorAll('.tab').forEach(function (t) {
-      var actif = t.dataset.vue === 'entrees';
-      t.classList.toggle('active', actif);
-      t.setAttribute('aria-selected', actif ? 'true' : 'false');
-    });
-    rendreEntrees();
-    return;
-  }
+  var connues = ENTREES_LE > 0;   // « jamais chargé » et « chargé, mais vide » ne s'affichent pas pareil
   if (!discret) {
     document.querySelectorAll('.tab').forEach(function (t) {
       var actif = t.dataset.vue === 'entrees';
       t.classList.toggle('active', actif);
       t.setAttribute('aria-selected', actif ? 'true' : 'false');
     });
-    $('liste').innerHTML = '<p class="vide">Chargement…</p>';
+    if (!connues) {
+      var c = entreesMemorisees();
+      if (c) { ENTREES = c.res; ENTREES_LE = c.le; connues = true; majOngletEntrees(); }
+    }
+    if (connues) {
+      rendreEntrees();                                  // affichage immédiat
+      if (Date.now() - ENTREES_LE < 120000) return;     // assez frais : on s'arrête là
+    } else {
+      $('liste').innerHTML = '<p class="vide">Chargement…</p>';
+    }
   }
+  if (ENTREES_EN_VOL) return;   // un appel est déjà parti : son résultat servira aussi ici
+  ENTREES_EN_VOL = true;
   api({ action: 'adminEntrees', email: SESSION.email, token: SESSION.token }, function (res) {
+    ENTREES_EN_VOL = false;
     if (!res || !res.ok) {
-      if (!discret && VUE === 'entrees') $('liste').innerHTML = '<div class="alerte">' + esc((res && res.error) || 'Erreur') + '</div>';
+      if (!discret && VUE === 'entrees' && !connues) $('liste').innerHTML = '<div class="alerte">' + esc((res && res.error) || 'Erreur') + '</div>';
       return;
     }
     ENTREES = res;
     ENTREES_LE = Date.now();
+    memoriserEntrees(res);
     majOngletEntrees();
     if (VUE === 'entrees') rendreEntrees();   // la vue a pu changer pendant l'attente
   });
