@@ -1057,10 +1057,16 @@ function makeAssocBlock(idx) {
 
 function updateAssocCount(n) {
   var c = document.getElementById('assoc-container');
-  c.innerHTML = '';
-  for (var i = 0; i < parseInt(n); i++) {
-    c.innerHTML += makeAssocBlock(i);
+  var cible = parseInt(n) || 1;
+  // On ajoute ou retire des blocs, sans toucher à ceux qui sont déjà remplis.
+  while (c.children.length > cible) c.removeChild(c.lastElementChild);
+  while (c.children.length < cible) {
+    var d = document.createElement('div');
+    d.innerHTML = makeAssocBlock(c.children.length);
+    // makeAssocBlock rend un bloc complet : on insère son contenu tel quel
+    while (d.firstChild) c.appendChild(d.firstChild);
   }
+  for (var i = 0; i < cible; i++) { try { afficherTypeAssocie(i); } catch (e) {} }
   refreshMandataireList();
 }
 
@@ -1333,7 +1339,40 @@ function updateManBlocks() {
 }
 
 // Legacy - kept for compatibility
-function refreshMandataireList() { updateManBlocks(); }
+function refreshMandataireList() {
+  // Ne reconstruit QUE la liste déroulante « quel associé », en conservant la
+  // sélection : régénérer les blocs effacerait tout ce qui y a été saisi.
+  var nbMan = parseInt((document.getElementById('nb-man') || {}).value || '1') || 1;
+  var nbAssoc = parseInt((document.getElementById('nb-assoc') || {}).value || '1') || 1;
+  for (var i = 0; i < nbMan; i++) {
+    var sel = document.getElementById('man' + i + '-assoc-select');
+    if (!sel) continue;
+    var garde = sel.value;
+    sel.innerHTML = optionsAssocies(nbAssoc);
+    sel.value = garde;
+    if (sel.value !== garde) sel.value = '';   // l'associé choisi n'existe plus
+  }
+}
+
+// Options « quel associé », partagées par le bloc mandataire et son rafraîchissement
+function optionsAssocies(nbAssoc) {
+  var html = '<option value="">\u2014 S\u00e9lectionner \u2014</option>';
+  for (var i = 0; i < nbAssoc; i++) {
+    var typeEl = document.getElementById('a' + i + '-type');
+    var lbl;
+    if (typeEl && typeEl.value === 'morale') {
+      var den = ((document.getElementById('a' + i + '-denomination') || {}).value || '').trim() || ('Société associée ' + (i + 1));
+      var rep2 = [(document.getElementById('a' + i + '-rep-prenom') || {}).value, (document.getElementById('a' + i + '-rep-nom') || {}).value].filter(Boolean).join(' ');
+      lbl = den + (rep2 ? ' (représentée par ' + rep2 + ')' : '');
+    } else {
+      var nom = ((document.getElementById('a' + i + '-nom') || {}).value || '').trim();
+      var pre = ((document.getElementById('a' + i + '-prenom') || {}).value || '').trim();
+      lbl = (pre || nom) ? [pre, nom].filter(Boolean).join(' ') : ('Associé ' + (i + 1));
+    }
+    html += '<option value="' + i + '">' + lbl + '</option>';
+  }
+  return html;
+}
 
 
 // ── Validation clôture ────────────────────────────────────────
@@ -1411,7 +1450,11 @@ function showFieldFeedback(el, isOk, errMsg) {
   }
 }
 
-function onDomiciliationChange() {
+// `effacer` vaut false quand on rejoue l'état d'un brouillon : l'adresse déjà
+// saisie doit alors être conservée.
+var RESTAURATION_EN_COURS = false;
+function onDomiciliationChange(effacer) {
+  if (effacer === undefined) effacer = !RESTAURATION_EN_COURS;
   var val = document.querySelector('input[name="domiciliation"]:checked');
   val = val ? val.value : '';
   var adresseFields = document.getElementById('adresse-fields');
@@ -1425,15 +1468,19 @@ function onDomiciliationChange() {
     if (ville) ville.value = 'Paris';
     if (adresseFields) adresseFields.style.display = 'none';
   } else if (val === 'gerant') {
-    if (adresse) adresse.value = '';
-    if (cp) cp.value = '';
-    if (ville) ville.value = '';
+    if (effacer) {
+      if (adresse) adresse.value = '';
+      if (cp) cp.value = '';
+      if (ville) ville.value = '';
+    }
     if (adresseFields) adresseFields.style.display = 'none';
   } else {
-    // Autre — show empty fields
-    if (adresse) adresse.value = '';
-    if (cp) cp.value = '';
-    if (ville) ville.value = '';
+    // Autre — champs visibles, vidés seulement sur un choix de l'utilisateur
+    if (effacer) {
+      if (adresse) adresse.value = '';
+      if (cp) cp.value = '';
+      if (ville) ville.value = '';
+    }
     if (adresseFields) adresseFields.style.display = '';
   }
 }
@@ -2703,6 +2750,7 @@ function collecterDossier() {
 
 // ── Restaurer les valeurs ─────────────────────────────────────
 function restaurerDossier(data) {
+  RESTAURATION_EN_COURS = true;   // les gestionnaires ne doivent rien effacer
   if (!data) return;
   Object.keys(data).forEach(function(key) {
     if (key.startsWith('radio__')) {
@@ -2729,9 +2777,13 @@ function restaurerDossier(data) {
   });
   // Re-déclencher les fonctions conditionnelles
   setTimeout(function() {
-    if (typeof onFormeChange === 'function') onFormeChange();
-    if (typeof onDomiciliationChange === 'function') onDomiciliationChange();
+    // onFormeChange() régénérerait les blocs associés et mandataires : tout ce
+    // qui vient d'être restauré serait perdu. On se limite aux affichages.
+    if (typeof appliquerAffichagesForme === 'function') appliquerAffichagesForme();
+    if (typeof onDomiciliationChange === 'function') onDomiciliationChange(false);
+    if (typeof refreshMandataireList === 'function') refreshMandataireList();
     if (typeof refreshAcreVerdicts === 'function') refreshAcreVerdicts();
+    RESTAURATION_EN_COURS = false;
   }, 200);
   // Affichages qui dépendent des valeurs restaurées (sans régénérer les blocs)
   try {

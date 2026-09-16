@@ -219,6 +219,9 @@ var ETAPE = 'email';
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+// Valeur placée dans une chaîne JavaScript à l'intérieur d'un attribut :
+// « L'ATELIER » ou « D'ANGELO » casseraient le code sans le moindre message.
+function escJs(s){ return esc(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
 function api(p, cb){
   fetch(APPS_SCRIPT_URL, { method:'POST', body: JSON.stringify(p) })
     .then(function(r){ return r.json(); })
@@ -464,7 +467,9 @@ function listeMesPiecesHtml(fichiers) {
 
 function apercuPossible(type) {
   type = String(type || '');
-  return /^image\//.test(type) || type.indexOf('pdf') > -1 || /^text\//.test(type);
+  // Volontairement limité aux images et aux PDF : un document HTML affiché ici
+  // s'exécuterait avec l'origine du portail, donc avec accès à la session.
+  return /^image\//.test(type) || type.indexOf('pdf') > -1;
 }
 
 function iconePiece(type) {
@@ -582,8 +587,8 @@ function rendreManques(d) {
       var action = m.type === 'piece'
         ? '<label class="dem-pdf" style="cursor:pointer;white-space:nowrap;">📎 Déposer' +
           '<input type="file" multiple accept="image/*,.pdf" style="display:none;" ' +
-          'onchange="deposerManque(\'' + esc(d.code || '') + '\', ' + (d.ligneSoumission || 0) + ', \'' + esc(m.cle) + '\', \'' + esc(m.personne) + '\', this)"></label>'
-        : '<button class="dem-pdf" style="white-space:nowrap;" onclick="demarcheFaite(\'' + esc(d.code) + '\', ' + m.ligne + ', this)">✓ C\'est fait</button>';
+          'onchange="deposerManque(\'' + escJs(d.code || '') + '\', ' + (d.ligneSoumission || 0) + ', \'' + escJs(m.cle) + '\', \'' + escJs(m.personne) + '\', this)"></label>'
+        : '<button class="dem-pdf" style="white-space:nowrap;" onclick="demarcheFaite(\'' + escJs(d.code) + '\', ' + m.ligne + ', this)">✓ C\'est fait</button>';
       return '<div class="mq-lig"><span>' + (m.type === 'piece' ? '📄' : '📌') + '</span>' +
         '<div class="mq-lib">' + esc(m.libelle) + (m.personne ? ' — <b>' + esc(m.personne) + '</b>' : '') +
         (m.aide ? '<div class="mq-aide">' + esc(m.aide) + '</div>' : '') + '</div>' + action +

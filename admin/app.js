@@ -106,6 +106,9 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
   });
 }
+// Valeur destinée à une chaîne JavaScript écrite dans un attribut (onclick,
+// onchange…) : une apostrophe dans « L'ATELIER » ou « D'ANGELO » casse le code.
+function escJs(s) { return esc(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
 
 // ── Connexion ────────────────────────────────────────────────
 function login() {
@@ -262,7 +265,13 @@ function ouvrirApp() {
   $('app').style.display = 'flex';
   $('user-nom').textContent = SESSION.nom;
   $('user-role').textContent = SESSION.role === 'associe' ? 'Associé' : 'Collaborateur';
-  if (SESSION.role === 'associe') $('tab-entrees').style.display = ''; $('tab-pennylane').style.display = '';
+  if (SESSION.role === 'associe') {
+    $('tab-entrees').style.display = '';
+    $('tab-pennylane').style.display = '';
+    $('btn-saisie').style.display = '';   // saisie pour un client : acte d'associé
+  } else {
+    $('btn-saisie').style.display = 'none';
+  }
   chargerDossiers(function () {
     // Apps Script exécute les requêtes d'un même utilisateur l'une après l'autre :
     // lancer le compteur en parallèle ferait attendre la liste des dossiers.
@@ -300,7 +309,7 @@ function chargerDossiers(ensuite) {
     if (avecPipeline) ENTREES_EN_VOL = false;
     $('loading').style.display = 'none';
     if (!res || !res.ok) {
-      if (ensuite && !avecPipeline) ensuite();
+      if (ensuite) ensuite();
       if (cache) { $('avis').innerHTML = '<div class="alerte">⚠ Actualisation impossible : ' + esc((res && res.error) || 'erreur') + '. La liste ci-dessous date de votre dernière consultation.</div>'; return; }
       alert('Chargement impossible : ' + ((res && res.error) || 'erreur'));
       return;
@@ -511,7 +520,7 @@ function rendreDonut(L) {
       ' stroke-dashoffset="' + (-offset * circ) + '"' +
       (parActivite ? ' style="transition:stroke-width .15s ease;"' :
         ' style="cursor:pointer;transition:stroke-width .15s ease;" onclick="filtrerForme(\'' +
-        p.nom.replace(/'/g, "\\'") + '\')"') + '>' +
+        escJs(p.nom) + '\')"') + '>' +
       '<title>' + esc(p.nom) + ' : ' + p.n + '</title></circle>';
     offset += frac;
     return seg;
@@ -521,7 +530,7 @@ function rendreDonut(L) {
     var estActif = actifs.indexOf(p.nom) > -1;
     return '<button class="leg' + (estActif ? ' actif' : '') + '" aria-pressed="' + (estActif ? 'true' : 'false') +
       '"' + (parActivite ? ' disabled style="cursor:default;"' :
-        ' onclick="filtrerForme(\'' + p.nom.replace(/'/g, "\\'") + '\')"') + '>' +
+        ' onclick="filtrerForme(\'' + escJs(p.nom) + '\')"') + '>' +
       '<i style="background:' + p.c + '"></i>' +
       '<span class="leg-nom" title="' + esc(p.nom) + '">' + esc(p.nom) + '</span>' +
       '<b>' + p.n + '</b><span class="leg-pct">' + Math.round(p.n / total * 100) + '%</span></button>';
@@ -790,7 +799,7 @@ function rendreCompletude(r, ligne) {
       if (l.statut === 'attendue') {
         if (l.type === 'piece') {
           actions += '<label class="piece-act" style="cursor:pointer;">📎 Déposer<input type="file" multiple accept="image/*,.pdf" style="display:none;" ' +
-            'onchange="deposerPour(' + ligne + ', \'' + esc(l.cle) + '\', \'' + esc(l.personne) + '\', this)"></label>' +
+            'onchange="deposerPour(' + ligne + ', \'' + escJs(l.cle) + '\', \'' + escJs(l.personne) + '\', this)"></label>' +
             b('reçue hors portail', 'Reçue par email');
         } else {
           actions += b('faite', '✓ Faite');
@@ -1892,7 +1901,7 @@ function actionEntree(e) {
       '<div class="lettre-meta">Générée le ' + esc(e.ldm) + '. Dès son retour, enregistrez-la depuis la fiche ' +
       'du dossier <b>' + esc(e.codeDossier) + '</b> (bouton « LDM signée reçue ») : le dossier passera en terminé.</div>' +
       '<div class="lettre-actions"><button class="btn-rep" onclick="allerAuDossier(\'' +
-      esc(e.denomination).replace(/'/g, "\\'") + '\')">→ Ouvrir le dossier</button></div></div>';
+      escJs(e.denomination) + '\')">→ Ouvrir le dossier</button></div></div>';
   }
 
   if (c.attente) {
@@ -1937,7 +1946,7 @@ function actionEntree(e) {
       'Générez la lettre depuis l\'onglet <b>Dossiers</b> (recherchez « ' + esc(e.denomination) + ' »), ' +
       'puis déposez le PDF dans Yousign pour signature.</div>' +
       '<div class="lettre-actions"><button class="btn-rep" onclick="allerAuDossier(\'' +
-      esc(e.denomination).replace(/'/g, "\\'") + '\')">→ Ouvrir le dossier</button></div></div>';
+      escJs(e.denomination) + '\')">→ Ouvrir le dossier</button></div></div>';
   }
   return '';
 }
@@ -1963,10 +1972,14 @@ function voirPieces(url, btn) {
 
 function allerAuDossier(denomination) {
   changerVue('dossiers');
+  FILTRES = {};        // un filtre actif masquerait le dossier recherché
+  PAGE = 1;
+  remplirFiltres();
   $('q').value = denomination;
   rendre();
   var t = document.querySelector('tr.ligne');
   if (t) t.click();
+  else alert('Dossier « ' + denomination + ' » introuvable dans la liste.');
 }
 
 function creerDossier(ligne, btn) {
@@ -1984,7 +1997,7 @@ function creerDossier(ligne, btn) {
         msg.textContent = '✓ Dossier ' + res.code + ' créé.';
         msg.className = 'maj ok';
         chargerDossiers();
-        setTimeout(chargerEntrees, 400);
+        setTimeout(function () { ENTREES_LE = 0; chargerEntrees(); }, 400);
       } else {
         msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
         msg.className = 'maj ko';
@@ -2095,8 +2108,7 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   $('email-oubli').addEventListener('keydown', function (e) { if (e.key === 'Enter') demanderReinit(); });
   $('mdp2').addEventListener('keydown', function (e) { if (e.key === 'Enter') definirMdp(); });
-  verifierLienReinit();
-  restaurerSessionAdmin();
+  if (!verifierLienReinit()) restaurerSessionAdmin();   // un lien de réinitialisation prime
   $('saisie-email').addEventListener('keydown', function (e) { if (e.key === 'Enter') ouvrirSaisieCabinet('constitution'); });
   ['q'].forEach(function (id) { $(id).addEventListener('input', function () { PAGE = 1; rendre(); }); });
   // Raccourci « / » : focus sur la recherche depuis n'importe où
