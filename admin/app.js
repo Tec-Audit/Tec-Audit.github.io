@@ -673,8 +673,50 @@ function ficheDossier(l) {
     (SESSION.role === 'associe' ? blocHonoraires(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLettreConfraternelle(l, lignesSheet) : '') +
+    blocStatuts(l) +
     blocLdmRetour(l, lignesSheet) +
   '</div>';
+}
+
+// ── Projet de statuts ───────────────────────────────────────
+// Le portail ne rédige pas : il reprend la trame du cabinet, y substitue les
+// informations du dossier et transmet le document au secrétariat, qui reste
+// responsable du texte. Ouvert au collaborateur en charge — c'est lui qui suit
+// la constitution et qui sait quand le dossier est prêt à être rédigé.
+function blocStatuts(l) {
+  var code = val(l, 'Code dossier');
+  if (!code) return '';
+  return '<details class="coord"><summary>📄 Projet de statuts</summary>' +
+    '<div class="lettre-meta">La trame du cabinet est complétée avec les informations du dossier, ' +
+    'déposée dans le dossier Drive du client et transmise au secrétariat.</div>' +
+    '<div class="lettre-actions" style="margin-top:9px;">' +
+    '<button class="btn-envoyer" onclick="preparerStatuts(\'' + escJs(code) + '\', this)">' +
+    'Préparer et envoyer au secrétariat</button>' +
+    '<span class="maj" role="status" aria-live="polite"></span></div>' +
+    '<div class="statuts-res"></div></details>';
+}
+
+function preparerStatuts(code, btn) {
+  var msg = btn.parentNode.querySelector('.maj');
+  var zone = btn.closest('details').querySelector('.statuts-res');
+  var libelle = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Préparation…';
+  msg.textContent = ''; msg.className = 'maj'; zone.innerHTML = '';
+  api({ action: 'adminStatuts', email: SESSION.email, token: SESSION.token, code: code }, function (r) {
+    btn.disabled = false; btn.textContent = libelle;
+    if (!r || !r.ok) {
+      msg.textContent = '⚠ ' + ((r && r.error) || 'échec');
+      msg.className = 'maj ko';
+      return;
+    }
+    msg.textContent = '✓ envoyé à ' + esc(r.destinataire);
+    msg.className = 'maj ok';
+    zone.innerHTML = '<div class="lettre-meta" style="margin-top:8px;">' +
+      (r.avecModele ? '' : '⚠ Aucune trame déposée pour cette forme : une fiche de rédaction a été envoyée à la place.<br>') +
+      (r.manquants && r.manquants.length
+        ? '⚠ À compléter avant relecture : ' + esc(r.manquants.join(', ').toLowerCase()) + '.<br>' : '') +
+      '<a href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.titre) + '</a></div>';
+  });
 }
 
 // ── Pièces du dossier : consultation et dépôt ────────────────
