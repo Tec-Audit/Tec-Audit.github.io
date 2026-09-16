@@ -49,9 +49,11 @@ function sessionExpiree() {
 
 // Postes d'honoraires : mêmes libellés et mêmes clés que le serveur
 var POSTES = [
-  { cle: 'hCompta',    colonne: 'Honoraires compta-fiscal', libelle: 'Comptabilité et fiscal' },
+  { cle: 'hCompta',    colonne: 'Honoraires compta-fiscal', libelle: 'Comptabilité et fiscal',
+    remiseCle: 'rCompta',    remiseColonne: 'Remise compta-fiscal' },
   { cle: 'hOutils',    colonne: 'Débours outils digitaux',  libelle: 'Débours outils digitaux' },
-  { cle: 'hJuridique', colonne: 'Honoraires juridique',     libelle: 'Juridique' }
+  { cle: 'hJuridique', colonne: 'Honoraires juridique',     libelle: 'Juridique',
+    remiseCle: 'rJuridique', remiseColonne: 'Remise juridique' }
 ];
 function nombre(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.,-]/g, '').replace(',', '.')); return isNaN(n) ? null : n; }
 function montantFr(n) { return n === null ? '' : n.toLocaleString('fr-FR', { maximumFractionDigits: 2 }); }
@@ -59,8 +61,14 @@ function montantFr(n) { return n === null ? '' : n.toLocaleString('fr-FR', { max
 function champsPostes(prefixe, valeurs) {
   return POSTES.map(function (p) {
     var v = valeurs ? valeurs[p.cle] : '';
+    var r = (valeurs && p.remiseCle) ? valeurs[p.remiseCle] : '';
     return '<label>' + esc(p.libelle) + ' € HT <input type="number" min="0" step="1" id="' + prefixe + p.cle +
-      '" value="' + esc(v == null ? '' : v) + '" style="width:104px;" oninput="majTotalPostes(\'' + prefixe + '\')"></label>';
+      '" value="' + esc(v == null ? '' : v) + '" style="width:104px;" oninput="majTotalPostes(\'' + prefixe + '\')"></label>' +
+      (p.remiseCle
+        ? '<label class="remise">remise <input type="number" min="0" step="1" id="' + prefixe + p.remiseCle +
+          '" value="' + esc(r == null ? '' : r) + '" style="width:84px;" placeholder="—" title="Remise exceptionnelle sur ce poste" ' +
+          'oninput="majTotalPostes(\'' + prefixe + '\')"></label>'
+        : '');
   }).join('') + '<span class="maj" id="' + prefixe + 'total" aria-live="polite"></span>';
 }
 function totalPostes(prefixe) {
@@ -68,18 +76,27 @@ function totalPostes(prefixe) {
   POSTES.forEach(function (p) {
     var n = nombre(($(prefixe + p.cle) || {}).value);
     if (n !== null) total = (total || 0) + n;
+    if (p.remiseCle) {
+      var r = nombre(($(prefixe + p.remiseCle) || {}).value);
+      if (r !== null && r > 0) total = (total || 0) - r;
+    }
   });
   return total;
 }
 function majTotalPostes(prefixe) {
   var el = $(prefixe + 'total'); if (!el) return;
   var t = totalPostes(prefixe);
-  el.textContent = t === null ? '' : 'Total ' + montantFr(t) + ' € HT';
+  var remises = 0;
+  POSTES.forEach(function (p) { if (p.remiseCle) { var r = nombre(($(prefixe + p.remiseCle) || {}).value); if (r > 0) remises += r; } });
+  el.textContent = t === null ? '' : 'Total ' + montantFr(t) + ' € HT' + (remises ? ' (après ' + montantFr(remises) + ' € de remise)' : '');
   el.className = 'maj';
 }
 function valeursPostes(prefixe) {
   var out = {};
-  POSTES.forEach(function (p) { out[p.cle] = ($(prefixe + p.cle) || {}).value || ''; });
+  POSTES.forEach(function (p) {
+    out[p.cle] = ($(prefixe + p.cle) || {}).value || '';
+    if (p.remiseCle) out[p.remiseCle] = ($(prefixe + p.remiseCle) || {}).value || '';
+  });
   return out;
 }
 
@@ -319,7 +336,7 @@ function remplirFiltres() {
     var vals = {};
     DATA.lignes.forEach(function (l) {
       var v = val(l, p[1]);
-      if (p[0] === 'f-forme') v = normForme(v);
+      if (p[0] === 'f-forme') v = categorieEntite(l);
       if (v) vals[v] = (vals[v] || 0) + 1;
     });
     var keys = Object.keys(vals).sort();
@@ -342,7 +359,7 @@ function lignesFiltrees() {
     if (fa && val(l, 'Associé responsable') !== fa) return false;
     if (fc && val(l, 'Collaborateur') !== fc) return false;
     if (fl && val(l, 'Statut LDM') !== fl) return false;
-    if (ff && normForme(val(l, 'Forme')) !== normForme(ff)) return false;
+    if (ff && categorieEntite(l) !== ff) return false;
     if (q) {
       var hay = [val(l, 'Dénomination'), val(l, 'Nom'), val(l, 'Prénom'), val(l, 'Email'),
                  val(l, 'Code dossier'), val(l, 'SIRET'), val(l, 'Ville'), val(l, 'Mobile')]
@@ -377,11 +394,22 @@ function normActivite(a) {
   return s || 'Non renseignée';
 }
 
+// Une société civile est à l'IR ou à l'IS : tant que le régime n'a pas été obtenu
+// des associés, elle apparaît à part, ce qui donne la liste de celles à qualifier.
+function categorieEntite(l) {
+  var f = normForme(val(l, 'Forme'));
+  if (f !== 'SCI / Sté civile') return f;
+  var r = String(val(l, 'Régime fiscal') || '').toUpperCase();
+  if (r === 'IR') return 'SCI à l\'IR';
+  if (r === 'IS') return 'SCI à l\'IS';
+  return 'SCI — régime à obtenir';
+}
+
 function rendreDonut(L) {
   var parActivite = (REPARTITION === 'activite');
   var formes = {};
   L.forEach(function (l) {
-    var f = parActivite ? normActivite(val(l, 'Activité')) : normForme(val(l, 'Forme'));
+    var f = parActivite ? normActivite(val(l, 'Activité')) : categorieEntite(l);
     formes[f] = (formes[f] || 0) + 1;
   });
   var cles = Object.keys(formes).sort(function (a, b) { return formes[b] - formes[a]; });
@@ -392,13 +420,13 @@ function rendreDonut(L) {
   if (autres > 0) parts.push({ nom: 'Autres', n: autres, c: '#B8C0CE' });
 
   var total = L.length || 1;
-  var actif = (!parActivite && $('f-forme').value) ? normForme($('f-forme').value) : '';
+  var actif = (!parActivite && $('f-forme').value) ? $('f-forme').value : '';
   var R = 54, EP = 16, C = 70;
   var circ = 2 * Math.PI * R;
   var offset = 0;
   var segs = parts.map(function (p) {
     var frac = p.n / total;
-    var estActif = actif && actif === normForme(p.nom);
+    var estActif = actif && actif === p.nom;
     var seg = '<circle r="' + R + '" cx="' + C + '" cy="' + C + '" fill="none"' +
       ' stroke="' + p.c + '" stroke-width="' + (estActif ? EP + 5 : EP) + '"' +
       ' stroke-dasharray="' + (frac * circ - 2) + ' ' + (circ - frac * circ + 2) + '"' +
@@ -412,7 +440,7 @@ function rendreDonut(L) {
   }).join('');
 
   var legende = parts.map(function (p) {
-    var estActif = actif && actif === normForme(p.nom);
+    var estActif = actif && actif === p.nom;
     return '<button class="leg' + (estActif ? ' actif' : '') + '" aria-pressed="' + (estActif ? 'true' : 'false') +
       '"' + (parActivite ? ' disabled style="cursor:default;"' :
         ' onclick="filtrerForme(\'' + p.nom.replace(/'/g, "\\'") + '\')"') + '>' +
@@ -467,7 +495,8 @@ function normForme(f) {
 
 function filtrerForme(f) {
   var sel = $('f-forme');
-  sel.value = (normForme(sel.value) === f) ? '' : f;  // re-clic = retour à « Tous »
+  sel.value = (sel.value === f) ? '' : f;   // re-clic = retour à « Tous »
+  PAGE = 1;
   rendre();
 }
 
@@ -518,6 +547,7 @@ function ficheDossier(l) {
     ['Code dossier', val(l, 'Code dossier')], ['Forme', val(l, 'Forme')],
     ['SIRET', val(l, 'SIRET')], ['Ville', [val(l, 'CP'), val(l, 'Ville')].filter(Boolean).join(' ')],
     ['Activité', val(l, 'Activité')], ['Clôture', val(l, 'Clôture')],
+    ['Régime fiscal', normForme(val(l, 'Forme')) === 'SCI / Sté civile' ? (val(l, 'Régime fiscal') || 'à obtenir des associés') : ''],
     ['Honoraires', (SESSION.role === 'associe' && val(l, 'Honoraires HT'))
       ? val(l, 'Honoraires HT') + ' € HT / ' + val(l, 'Périodicité') + detailPostes(l) : ''],
     ['Associé', val(l, 'Associé responsable')], ['Collaborateur', val(l, 'Collaborateur')]
@@ -544,6 +574,7 @@ function ficheDossier(l) {
     blocPieces(l, lignesSheet) +
     blocCompletude(l, lignesSheet) +
     blocContact(l, lignesSheet) +
+    (SESSION.role === 'associe' ? blocRegime(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocHonoraires(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
@@ -1115,14 +1146,20 @@ function enregistrerContact(ligne, btn) {
 // Détail de la ventilation, en clair sous le total
 function detailPostes(l) {
   var parts = POSTES.filter(function (p) { return DATA.idx[p.colonne] !== undefined && val(l, p.colonne); })
-    .map(function (p) { return p.libelle + ' ' + val(l, p.colonne) + ' €'; });
+    .map(function (p) {
+      var r = (p.remiseColonne && DATA.idx[p.remiseColonne] !== undefined) ? val(l, p.remiseColonne) : '';
+      return p.libelle + ' ' + val(l, p.colonne) + ' €' + (nombre(r) > 0 ? ' − ' + r + ' € de remise' : '');
+    });
   return parts.length ? ' (' + parts.join(' · ') + ')' : '';
 }
 
 // Honoraires modifiables tant que la lettre de mission n'est pas partie
 function blocHonoraires(l, ligne) {
   var valeurs = {};
-  POSTES.forEach(function (p) { valeurs[p.cle] = DATA.idx[p.colonne] !== undefined ? val(l, p.colonne) : ''; });
+  POSTES.forEach(function (p) {
+    valeurs[p.cle] = DATA.idx[p.colonne] !== undefined ? val(l, p.colonne) : '';
+    if (p.remiseCle) valeurs[p.remiseCle] = DATA.idx[p.remiseColonne] !== undefined ? val(l, p.remiseColonne) : '';
+  });
   var per = val(l, 'Périodicité');
   var opts = ['', 'Mensuelle', 'Trimestrielle', 'Annuelle'].map(function (o) {
     return '<option value="' + esc(o) + '"' + (o === per ? ' selected' : '') + '>' + (o || '—') + '</option>';
@@ -1141,13 +1178,17 @@ function enregistrerHonoraires(ligne, btn) {
   btn.disabled = true; msg.textContent = '…'; msg.className = 'maj';
   api({ action: 'adminHonoraires', email: SESSION.email, token: SESSION.token, ligne: ligne,
         hCompta: p.hCompta, hOutils: p.hOutils, hJuridique: p.hJuridique,
+        rCompta: p.rCompta, rJuridique: p.rJuridique,
         periodicite: ($('hper-' + ligne) || {}).value || '' }, function (res) {
     btn.disabled = false;
     if (res && res.ok) {
       msg.textContent = '✓ enregistré'; msg.className = 'maj ok';
       DATA.lignes.forEach(function (l) {
         if (l[DATA.iLigne] !== ligne) return;
-        POSTES.forEach(function (po) { if (DATA.idx[po.colonne] !== undefined) l[DATA.idx[po.colonne]] = p[po.cle]; });
+        POSTES.forEach(function (po) {
+          if (DATA.idx[po.colonne] !== undefined) l[DATA.idx[po.colonne]] = p[po.cle];
+          if (po.remiseCle && DATA.idx[po.remiseColonne] !== undefined) l[DATA.idx[po.remiseColonne]] = p[po.remiseCle];
+        });
         if (DATA.idx['Honoraires HT'] !== undefined) l[DATA.idx['Honoraires HT']] = res.total;
         if (DATA.idx['Périodicité'] !== undefined) l[DATA.idx['Périodicité']] = ($('hper-' + ligne) || {}).value || '';
       });
@@ -1222,6 +1263,17 @@ function telechargerPdf(b64, nom) {
   a.href = url; a.download = nom;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+}
+
+// Régime fiscal : proposé seulement là où il change quelque chose, les sociétés civiles.
+function blocRegime(l, ligne) {
+  if (normForme(val(l, 'Forme')) !== 'SCI / Sté civile') return '';
+  var r = String(val(l, 'Régime fiscal') || '').toUpperCase();
+  var opts = [['', '— à obtenir des associés —'], ['IR', 'IR — impôt sur le revenu'], ['IS', 'IS — impôt sur les sociétés']]
+    .map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === r ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('');
+  return '<div class="actions">Régime fiscal : <select onchange="modifier(' + ligne + ", 'Régime fiscal', this.value, this)\">" + opts + '</select>' +
+    (r ? '' : ' <span class="tag warn">à qualifier</span>') +
+    '<span class="maj" role="status" aria-live="polite"></span></div>';
 }
 
 function boutonsModif(l, ligne) {
@@ -1796,7 +1848,8 @@ function creerDossier(ligne, btn) {
         code: $('cd-' + ligne).value, associe: $('ca-' + ligne).value,
         collaborateur: $('cc-' + ligne).value, periodicite: $('cper-' + ligne).value,
         hCompta: $('cp-' + ligne + '-hCompta').value, hOutils: $('cp-' + ligne + '-hOutils').value,
-        hJuridique: $('cp-' + ligne + '-hJuridique').value },
+        hJuridique: $('cp-' + ligne + '-hJuridique').value,
+        rCompta: $('cp-' + ligne + '-rCompta').value, rJuridique: $('cp-' + ligne + '-rJuridique').value },
     function (res) {
       btn.disabled = false; btn.textContent = '➕ Créer le dossier';
       if (res && res.ok) {
