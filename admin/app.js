@@ -294,6 +294,26 @@ function basculerInvitation() {
   if (p.style.display === 'flex') $('inv-email').focus();
 }
 
+// Relire avant d'envoyer : l'aperçu passe par la même fonction serveur que
+// l'envoi, donc ce qui s'affiche est exactement ce que le client recevra.
+function apercuInvitation(btn) {
+  var libelle = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Chargement…';
+  api({ action: 'adminInviter', email: SESSION.email, token: SESSION.token, apercu: 1,
+        destinataire: ($('inv-email').value || '').trim(),
+        prenom: ($('inv-prenom').value || '').trim() }, function (r) {
+    btn.disabled = false; btn.textContent = libelle;
+    if (!r || !r.ok) {
+      $('inv-maj').textContent = '⚠ ' + ((r && r.error) || 'aperçu impossible');
+      $('inv-maj').className = 'maj ko';
+      return;
+    }
+    apercuHtml('Aperçu de l\u2019invitation',
+      r.destinataire ? 'Sera envoyée à ' + r.destinataire : 'Destinataire pas encore saisi',
+      r.html);
+  });
+}
+
 function envoyerInvitation() {
   var champ = $('inv-email'), msg = $('inv-maj'), btn = $('inv-btn');
   var email = (champ.value || '').trim().toLowerCase();
