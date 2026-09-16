@@ -2215,7 +2215,15 @@ function buildPiecesPersonnes() {
   if (!zone) return;
   var liste = personnesFormulaire();
   var signature = liste.map(function (p) { return p.id + '|' + p.tag; }).join(';');
-  if (zone.dataset.signature !== signature) {          // fichiers déjà choisis conservés si rien n'a changé
+  if (zone.dataset.signature !== signature) {
+    // La signature porte le nom des personnes : corriger une faute de frappe
+    // suffisait à la changer, et les pièces déjà déposées disparaissaient en
+    // silence. On les reprend, pour les personnes qui subsistent.
+    var deja = {};
+    liste.forEach(function (pe) {
+      var el = document.getElementById('file-' + pe.id);
+      if (el && el.files && el.files.length) deja[pe.id] = el.files;
+    });
     zone.dataset.signature = signature;
     zone.innerHTML = liste.map(function (p) {
       return '<li class="piece-item piece-upload"><div class="piece-label"><span class="piece-icon">&#128196;</span>' +
@@ -2224,6 +2232,16 @@ function buildPiecesPersonnes() {
         '<input type="file" id="file-' + p.id + '" multiple accept="image/*,.pdf" onchange="updateFileLabel(\'' + p.id + '\')"></label>' +
         '<div class="file-names" id="' + p.id + '-names"></div></li>';
     }).join('');
+    Object.keys(deja).forEach(function (id) {
+      var el = document.getElementById('file-' + id);
+      if (!el) return;
+      try {
+        var dt = new DataTransfer();
+        for (var i = 0; i < deja[id].length; i++) dt.items.add(deja[id][i]);
+        el.files = dt.files;
+        updateFileLabel(id);
+      } catch (e) {}   // un navigateur récalcitrant ne doit pas casser l'étape
+    });
   }
   var dip = document.getElementById('piece-diplome');
   if (dip) dip.style.display = ((document.getElementById('activite-reglementee') || {}).value === 'oui' && document.getElementById('forme').value === 'EI') ? '' : 'none';
