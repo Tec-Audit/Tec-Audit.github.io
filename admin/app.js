@@ -1746,7 +1746,7 @@ function etapes(e) {
   var signee = st2.indexOf('SIGNÉE') === 0 || st2.indexOf('SIGNEE') === 0;
   var horsCampagne = st2.indexOf('HORS') === 0;
   l.push({ nom: 'Signature', fait: signee, attente: !!e.ldm && !signee && !horsCampagne,
-           futur: !e.ldm && !signee });
+           futur: !e.ldm && !signee, signature: true });
   return l;
 }
 
@@ -1783,9 +1783,15 @@ function rendreEntrees() {
     return (ja === null ? 999 : ja) - (jb === null ? 999 : jb);
   });
 
-  var html = groupe('🔴 À traiter', aTraiter, 'Ces dossiers attendent une action de votre part.');
-  html += groupe('🟠 Délai en cours', enAttente, 'Le confrère dispose de 15 jours pour s\'opposer ; la reprise sera actée automatiquement à l\'échéance.');
-  html += groupe('🟢 Terminés', termines, '', true);
+  var html;
+  try {
+    html = groupe('🔴 À traiter', aTraiter, 'Ces dossiers attendent une action de votre part.') +
+      groupe('🟠 En attente', enAttente, 'Délai confraternel de 15 jours, ou lettre de mission envoyée dont le retour signé se fait attendre.') +
+      groupe('🟢 Terminés', termines, '', true);
+  } catch (e) {
+    console.error('rendreEntrees', e);
+    html = '<div class="alerte">⚠ Affichage impossible : ' + esc(e.message) + '. Rechargez la page ; si cela persiste, prévenez Emmanuel.</div>';
+  }
   $('liste').innerHTML = html;
 
   majOngletEntrees();
@@ -1846,6 +1852,15 @@ function actionEntree(e) {
   if (c.alerte) {
     return '<div class="entree-act"><b style="color:#c0392b;">Le confrère a émis une objection</b>' +
       '<div class="lettre-meta">À traiter avec le client avant d\'aller plus loin (honoraires impayés, litige…).</div></div>';
+  }
+
+  // Lettre de mission envoyée, retour du client attendu
+  if (c.attente && c.signature) {
+    return '<div class="entree-act"><b>En attente de la lettre de mission signée</b>' +
+      '<div class="lettre-meta">Générée le ' + esc(e.ldm) + '. Dès son retour, enregistrez-la depuis la fiche ' +
+      'du dossier <b>' + esc(e.codeDossier) + '</b> (bouton « LDM signée reçue ») : le dossier passera en terminé.</div>' +
+      '<div class="lettre-actions"><button class="btn-rep" onclick="allerAuDossier(\'' +
+      esc(e.denomination).replace(/'/g, "\\'") + '\')">→ Ouvrir le dossier</button></div></div>';
   }
 
   if (c.attente) {
