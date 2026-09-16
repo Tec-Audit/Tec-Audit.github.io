@@ -664,7 +664,7 @@ function ficheDossier(l) {
     blocPieces(l, lignesSheet) +
     blocCompletude(l, lignesSheet) +
     blocContact(l, lignesSheet) +
-    (SESSION.role === 'associe' ? blocRegime(l, lignesSheet) : '') +
+    blocCompleter(l, lignesSheet) +
     (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocHonoraires(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
@@ -1407,15 +1407,46 @@ function telechargerPdf(b64, nom) {
   setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
 }
 
-// Régime fiscal : proposé seulement là où il change quelque chose, les sociétés civiles.
-function blocRegime(l, ligne) {
-  if (normForme(val(l, 'Forme')) !== 'SCI / Sté civile') return '';
-  var r = String(val(l, 'Régime fiscal') || '').toUpperCase();
-  var opts = [['', '— à obtenir des associés —'], ['IR', 'IR — impôt sur le revenu'], ['IS', 'IS — impôt sur les sociétés']]
-    .map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === r ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('');
-  return '<div class="actions">Régime fiscal : <select onchange="modifier(' + ligne + ", 'Régime fiscal', this.value, this)\">" + opts + '</select>' +
-    (r ? '' : ' <span class="tag warn">à qualifier</span>') +
+// Objet social, clôture et régime fiscal ne sont plus exigés du client pendant
+// l'onboarding : les laisser en blanc valait mieux qu'une réponse inventée. Ils
+// se complètent ici, et le collaborateur en charge du dossier peut le faire
+// lui-même. Un champ déjà renseigné disparaît du bloc, sauf le régime fiscal
+// d'une société civile : il commande la catégorie du dossier et doit rester
+// corrigeable.
+var MOIS_CLOTURE = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+
+function champCompleter(ligne, colonne, libelle, courant, options, avertir) {
+  var appel = "modifier(" + ligne + ", '" + colonne + "', this.value, this)";
+  var champ = options
+    ? '<select onchange="' + appel + '">' + options.map(function (o) {
+        return '<option value="' + esc(o[0]) + '"' + (o[0] === courant ? ' selected' : '') +
+               '>' + esc(o[1]) + '</option>';
+      }).join('') + '</select>'
+    : '<input type="text" value="' + esc(courant) + '" placeholder="à compléter" ' +
+      'style="width:270px;" onchange="' + appel + '">';
+  return '<div class="actions">' + esc(libelle) + ' : ' + champ +
+    (avertir ? ' <span class="tag warn">à compléter</span>' : '') +
     '<span class="maj" role="status" aria-live="polite"></span></div>';
+}
+
+function blocCompleter(l, ligne) {
+  var civile = normForme(val(l, 'Forme')) === 'SCI / Sté civile';
+  var regime = String(val(l, 'Régime fiscal') || '').toUpperCase();
+  var out = '';
+  if (!val(l, 'Activité')) {
+    out += champCompleter(ligne, 'Activité', 'Objet social / activité', '', null, true);
+  }
+  if (!val(l, 'Clôture')) {
+    out += champCompleter(ligne, 'Clôture', 'Clôture', '',
+      [['', '— à compléter —']].concat(MOIS_CLOTURE.map(function (m) { return [m, m]; })), true);
+  }
+  if (civile || !regime) {
+    out += champCompleter(ligne, 'Régime fiscal', 'Régime fiscal', regime,
+      [['', '— à obtenir des associés —'], ['IS', 'IS — impôt sur les sociétés'],
+       ['IR', 'IR — impôt sur le revenu']], !regime);
+  }
+  return out;
 }
 
 function boutonsModif(l, ligne) {

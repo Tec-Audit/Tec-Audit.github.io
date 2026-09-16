@@ -801,6 +801,7 @@ function afficherChargement(actif) {
 // ── Navigation ──────────────────────────────────────────────────
 
 function goTo(n) {
+  if (n === 2) { try { majAcreMandataires(); } catch(e) {} }
   if (n === 3) { try { buildPiecesPersonnes(); updateAcrePieceVisibility(); majPieceApport(); } catch(e) {} }
   document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
   var el = document.getElementById('sec-' + n);
@@ -1017,14 +1018,13 @@ function makeAssocBlock(idx) {
   // sit-wrap: only visible if M or P
   html += '<div id="' + p + '-sit-wrap" style="display:none" class="gc2" style="display:none">';
   html += '<div class="grid g2" style="margin:0">';
-  html += '<div class="field"><label>R\u00e9gime matrimonial</label>';
+  html += '<div class="field" id="' + p + '-regime-wrap"><label>R\u00e9gime matrimonial</label>';
   html += '<select id="' + p + '-regime" onchange="onRegimeChange(this.id)">';
   html += '<option value="">\u2014 S\u00e9lectionner \u2014</option>';
-  html += '<option>Communaut\u00e9 l\u00e9gale r\u00e9duite aux acqu\u00eats</option>';
+  html += '<option>Communaut\u00e9 l\u00e9gale (pas de contrat de mariage)</option>';
   html += '<option>S\u00e9paration de biens</option>';
   html += '<option>Communaut\u00e9 universelle</option>';
   html += '<option>Participation aux acqu\u00eats</option>';
-  html += '<option>Sans objet</option>';
   html += '</select></div>';
   html += '<div class="field"><label>Date et lieu du mariage/PACS</label><input type="text" id="' + p + '-mariage" placeholder="JJ/MM/AAAA \u2014 Ville"></div>';
   html += '<div class="field" id="' + p + '-contrat-wrap" style="display:none"><label>Date du contrat de mariage/PACS</label><input type="date" id="' + p + '-contrat"></div>';
@@ -1164,14 +1164,13 @@ function makeManBlock(idx, nbAssoc) {
   html += '</div></div>';
   html += '<div class="field"><label>Nom de jeune fille</label><input type="text" id="' + p + '-njf"></div>';
   html += '<div id="' + p + '-sit-wrap" style="display:none" class="gc2"><div class="grid g2" style="margin:0">';
-  html += '<div class="field"><label>R\u00e9gime matrimonial</label>';
+  html += '<div class="field" id="' + p + '-regime-wrap"><label>R\u00e9gime matrimonial</label>';
   html += '<select id="' + p + '-regime" onchange="onRegimeChange(this.id)">';
   html += '<option value="">\u2014 S\u00e9lectionner \u2014</option>';
-  html += '<option>Communaut\u00e9 l\u00e9gale r\u00e9duite aux acqu\u00eats</option>';
+  html += '<option>Communaut\u00e9 l\u00e9gale (pas de contrat de mariage)</option>';
   html += '<option>S\u00e9paration de biens</option>';
   html += '<option>Communaut\u00e9 universelle</option>';
   html += '<option>Participation aux acqu\u00eats</option>';
-  html += '<option>Sans objet</option>';
   html += '</select></div>';
   html += '<div class="field"><label>Date et lieu du mariage/PACS</label><input type="text" id="' + p + '-mariage" placeholder="JJ/MM/AAAA \u2014 Ville"></div>';
   html += '<div class="field" id="' + p + '-contrat-wrap" style="display:none"><label>Date du contrat de mariage/PACS</label><input type="date" id="' + p + '-contrat"></div>';
@@ -1229,6 +1228,30 @@ function makeManBlock(idx, nbAssoc) {
   html += '</div>'; // end acre-elig
   html += '</div>';
   return html;
+}
+
+// La demande d'ACRE dépend d'une réponse donnée à l'étape précédente — l'associé
+// est demandeur d'emploi. Sans recalcul à l'entrée de l'étape « mandataire »,
+// le bloc restait masqué si l'ordre de saisie avait été inverse.
+function majAcreMandataires() {
+  var nb = parseInt((document.getElementById('nb-man') || {}).value || '1') || 1;
+  var affilie = infoForme().affilie;
+  for (var i = 0; i < nb; i++) {
+    var p = 'man' + i;
+    var wrap = document.getElementById(p + '-acre-wrap');
+    if (!wrap) continue;
+    var chk;
+    if ((document.getElementById(p + '-qualite') || {}).value === 'associe') {
+      var ai = (document.getElementById(p + '-assoc-select') || {}).value;
+      chk = ai ? document.querySelector('input[name="a' + ai + '-prof"]:checked') : null;
+    } else {
+      chk = document.querySelector('input[name="' + p + '-prof"]:checked');
+    }
+    var montrer = !!(affilie && chk && chk.value === 'demandeur');
+    wrap.style.display = montrer ? '' : 'none';
+    var elig = document.getElementById(p + '-acre-elig');
+    if (elig) elig.style.display = (montrer && acreRadio(p + '-acre') === 'oui') ? '' : 'none';
+  }
 }
 
 function onManAssocChange(idx) {
@@ -1581,8 +1604,11 @@ function onSitChange(prefix) {
   var showSit = (val === 'M' || val === 'P');
   var sitWrap = document.getElementById(prefix + '-sit-wrap');
   if (sitWrap) sitWrap.style.display = showSit ? '' : 'none';
-  // Reset regime if hiding
-  if (!showSit) {
+  // Seul le mariage emporte un régime matrimonial : le PACS relève d'un autre
+  // régime et les célibataires, divorcés et veufs n'en ont aucun.
+  var regWrap = document.getElementById(prefix + '-regime-wrap');
+  if (regWrap) regWrap.style.display = (val === 'M') ? '' : 'none';
+  if (val !== 'M') {
     var regime = document.getElementById(prefix + '-regime');
     if (regime) regime.value = '';
     onRegimeChange(prefix + '-regime');
@@ -1594,8 +1620,9 @@ function onRegimeChange(selectId) {
   if (!sel) return;
   var prefix = selectId.replace('-regime', '');
   var val = sel.value;
-  // Show contrat/notaire only if regime is neither blank, "Communauté légale réduite aux acquêts", nor "Sans objet"
-  var excluded = ['', 'Communauté légale réduite aux acquêts', 'Sans objet'];
+  // La communauté légale s'applique à défaut de contrat : elle seule dispense
+  // d'indiquer une date d'acte et un notaire.
+  var excluded = ['', 'Communauté légale (pas de contrat de mariage)'];
   var show = excluded.indexOf(val) === -1;
   var cw = document.getElementById(prefix + '-contrat-wrap');
   var nw = document.getElementById(prefix + '-notaire-wrap');
@@ -1691,8 +1718,11 @@ function onProfChange(prefix) {
   var acreNote  = document.getElementById(prefix + '-acre-note');
   var libWrap   = document.getElementById(prefix + '-lib-wrap');
   var autreWrap = document.getElementById(prefix + '-autre-wrap');
-  if (acreWrap)  acreWrap.style.display  = (val === 'demandeur') ? '' : 'none';
-  if (acreNote)  acreNote.style.display  = (val === 'demandeur') ? '' : 'none';
+  // Un dirigeant non affilié — gérant de SCI, de SCM — n'ouvre aucun droit à
+  // l'ACRE : la question ne doit pas lui être posée, qu'il soit associé ou non.
+  var affilie = (typeof infoForme === 'function') ? infoForme().affilie : true;
+  if (acreWrap)  acreWrap.style.display  = (val === 'demandeur' && affilie) ? '' : 'none';
+  if (acreNote)  acreNote.style.display  = (val === 'demandeur' && affilie) ? '' : 'none';
   if (libWrap)   libWrap.style.display   = (val === 'liberal')   ? '' : 'none';
   if (autreWrap) autreWrap.style.display = (val === 'autre')     ? '' : 'none';
 }
@@ -1847,14 +1877,14 @@ function goToSocieteNext() {
   var errors = [];
   var firstEl = null;
 
+  // Objet social, clôture et régime fiscal ne bloquent plus la transmission :
+  // ce sont des arbitrages que le cabinet tranche avec le client, et exiger une
+  // réponse à l'aveugle produisait des valeurs fausses. Le collaborateur les
+  // complète depuis la fiche du dossier (bloc « Informations à compléter »).
   var fields = [
     {id:'denomination', label:'Dénomination sociale'},
     {id:'forme',        label:'Forme juridique'},
-    {id:'objet',        label:'Objet social'},
-    {id:'capital',      label:'Capital social'},
-    {id:'cloture',      label:'Mois de clôture'},
-    {id:'cloture1',     label:'Date de clôture du 1er exercice'},
-    {id:'regime-fiscal',label:'Régime fiscal'}
+    {id:'capital',      label:'Capital social'}
   ];
   if (document.getElementById('forme').value === 'EI') fields = fields.filter(function (f) { return f.id !== 'capital'; });
 
@@ -2211,6 +2241,17 @@ function listeFichiers() {
   return personnesFormulaire().concat(fixes);
 }
 
+// Une pièce d'identité manquante empêche le dépôt au greffe : c'est la seule
+// pièce dont l'absence bloque la transmission. Les autres peuvent suivre.
+function identitesManquantes() {
+  try { buildPiecesPersonnes(); } catch (e) {}
+  return personnesFormulaire().filter(function (pe) {
+    if (String(pe.tag || '').indexOf('cni') !== 0) return false;
+    var el = document.getElementById('file-' + pe.id);
+    return !el || !el.files || el.files.length === 0;
+  });
+}
+
 // Rejoue une validation d'étape sans changer de page : la fonction appelle
 // goTo() quand tout est bon, on intercepte cet appel pour en faire un verdict.
 function etapeValidee(fn) {
@@ -2245,6 +2286,26 @@ function validerAvecRGPD() {
       return;
     }
   }
+
+  var sansCni = identitesManquantes();
+  var pErr = document.getElementById('pieces-error');
+  if (!pErr) {
+    pErr = document.createElement('div');
+    pErr.id = 'pieces-error';
+    pErr.style.cssText = 'color:#c0392b;font-size:13px;margin:10px 0;padding:10px 14px;background:#fdecea;border-radius:3px;border-left:3px solid #c0392b;';
+    var nav3 = document.querySelector('#sec-3 .nav');
+    if (nav3) nav3.parentNode.insertBefore(pErr, nav3);
+  }
+  if (sansCni.length) {
+    pErr.innerHTML = '\u26a0 Pi\u00e8ce d\u2019identit\u00e9 obligatoire, encore attendue pour\u00a0:<br>- ' +
+      sansCni.map(function (pe) { return String(pe.tag).split('|')[1] || pe.label; }).join('<br>- ');
+    pErr.style.display = 'block';
+    goTo(3);
+    pErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  pErr.style.display = 'none';
+
   validerFormulaire();
 }
 
