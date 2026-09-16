@@ -978,6 +978,7 @@ function makeAssocBlock(idx) {
   var eiBloc = (document.getElementById('forme') || {}).value === 'EI';
   html += '<div class="grid g2">';
   html += '<div class="field"' + (eiBloc ? ' style="display:none"' : '') + '><label>Cet associé est</label><select id="' + p + '-type" onchange="onAssocTypeChange(' + idx + ')">' +
+          '<option value="">\u2014 \u00e0 pr\u00e9ciser \u2014</option>' +
           '<option value="physique">une personne physique</option><option value="morale">une société (holding, SCI…)</option></select></div>';
   html += '<div class="field"' + (eiBloc ? ' style="display:none"' : '') + '><label>Détention du capital (%)</label><input type="number" id="' + p + '-pct" min="0" max="100" step="0.01" placeholder="Ex : 50" oninput="validatePct(this);checkCapitalTotal()"></div>';
   html += '</div>';

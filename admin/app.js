@@ -340,10 +340,13 @@ function val(l, col) { return l[DATA.idx[col]] || ''; }
 // ── Filtres ──────────────────────────────────────────────────
 // Chaque critère accepte plusieurs valeurs : « Marc et Samy », « SCI à l'IR et
 // SCI à l'IS »… Les sélections sont conservées d'un rafraîchissement à l'autre.
+var SANS_COLLAB = '— à affecter —';
 var DEF_FILTRES = [
   { id: 'perimetre', libelle: 'Périmètre',    valeur: function (l) { return val(l, 'Périmètre'); } },
   { id: 'associe',   libelle: 'Associé',      valeur: function (l) { return val(l, 'Associé responsable'); }, associesSeuls: true },
-  { id: 'collab',    libelle: 'Collaborateur', valeur: function (l) { return val(l, 'Collaborateur'); }, associesSeuls: true },
+  // Un dossier sans collaborateur n'apparaîtrait dans aucune valeur du filtre :
+  // il est rangé sous « à affecter » pour rester trouvable.
+  { id: 'collab',    libelle: 'Collaborateur', valeur: function (l) { return val(l, 'Collaborateur') || SANS_COLLAB; }, associesSeuls: true },
   { id: 'ldm',       libelle: 'Statut LDM',   valeur: function (l) { return val(l, 'Statut LDM'); } },
   { id: 'forme',     libelle: 'Forme',        valeur: categorieEntite }
 ];
@@ -640,7 +643,8 @@ function ficheDossier(l) {
     ['Régime fiscal', normForme(val(l, 'Forme')) === 'SCI / Sté civile' ? (val(l, 'Régime fiscal') || 'à obtenir des associés') : ''],
     ['Honoraires', (SESSION.role === 'associe' && val(l, 'Honoraires HT'))
       ? val(l, 'Honoraires HT') + ' € HT / ' + val(l, 'Périodicité') + detailPostes(l) : ''],
-    ['Associé', val(l, 'Associé responsable')], ['Collaborateur', val(l, 'Collaborateur')]
+    ['Associé', val(l, 'Associé responsable')],
+    ['Collaborateur', val(l, 'Collaborateur') || (SESSION.role === 'associe' ? SANS_COLLAB : '')]
   ].filter(function (c) { return c[1]; });
 
   // Notes internes de la revue : réservées aux associés, et seulement là où
@@ -1490,7 +1494,8 @@ function colonnesTable() {
   ];
   if (SESSION.role === 'associe') {
     c.push({ t: 'Suivi par', tri: 'Collaborateur', l: '24%', r: function (l) {
-      return '<div class="c1">' + esc(val(l, 'Collaborateur') || '—') + '</div>' +
+      var co = val(l, 'Collaborateur');
+      return '<div class="c1">' + (co ? esc(co) : '<span class="tag warn">à affecter</span>') + '</div>' +
              '<div class="c2">' + esc(val(l, 'Associé responsable')) + '</div>'; } });
   }
   c.push({ t: 'LDM', tri: 'Statut LDM', l: '18%', r: function (l) {
