@@ -285,6 +285,40 @@ function basculerSaisieCabinet() {
   p.style.display = p.style.display === 'none' || !p.style.display ? 'flex' : 'none';
   if (p.style.display === 'flex') $('saisie-email').focus();
 }
+// Invitation : le cabinet n'a que l'adresse à saisir, le message est le même
+// pour tous. Les réponses reviennent à celui qui l'a envoyée, pas à une boîte
+// générale — un client qui répond veut parler à quelqu'un.
+function basculerInvitation() {
+  var p = $('invitation');
+  p.style.display = p.style.display === 'none' || !p.style.display ? 'flex' : 'none';
+  if (p.style.display === 'flex') $('inv-email').focus();
+}
+
+function envoyerInvitation() {
+  var champ = $('inv-email'), msg = $('inv-maj'), btn = $('inv-btn');
+  var email = (champ.value || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    champ.style.borderColor = '#c0392b'; champ.focus();
+    msg.textContent = '⚠ adresse invalide'; msg.className = 'maj ko';
+    return;
+  }
+  champ.style.borderColor = '';
+  btn.disabled = true; btn.textContent = 'Envoi…';
+  msg.textContent = ''; msg.className = 'maj';
+  api({ action: 'adminInviter', email: SESSION.email, token: SESSION.token,
+        destinataire: email, prenom: ($('inv-prenom').value || '').trim() }, function (r) {
+    btn.disabled = false; btn.textContent = 'Envoyer l\u2019invitation';
+    if (!r || !r.ok) {
+      msg.textContent = '⚠ ' + ((r && r.error) || 'échec');
+      msg.className = 'maj ko';
+      return;
+    }
+    msg.textContent = '✓ envoyée à ' + r.destinataire;
+    msg.className = 'maj ok';
+    champ.value = ''; $('inv-prenom').value = ''; champ.focus();
+  });
+}
+
 function ouvrirSaisieCabinet(parcours) {
   var email = ($('saisie-email').value || '').trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { $('saisie-email').focus(); $('saisie-email').style.borderColor = '#c0392b'; return; }

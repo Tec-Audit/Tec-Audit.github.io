@@ -396,6 +396,14 @@
     <div id="zone-filtres" class="zone-filtres"></div>
     <button class="btn-ghost" onclick="exporterCSV()">Exporter CSV</button>
     <button class="btn-ghost" id="btn-saisie" onclick="basculerSaisieCabinet()" title="Remplir un formulaire d'entr&eacute;e &agrave; la place du client">&#65291; Saisir un dossier pour un client</button>
+    <button class="btn-ghost" id="btn-inviter" onclick="basculerInvitation()" title="Envoyer au client le lien de son espace en ligne">&#9993; Inviter un client</button>
+  </div>
+  <div id="invitation" style="display:none;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 20px;background:#eef4fd;border-bottom:1px solid #c5d5ea;font-size:13.5px;">
+    <span>Le client re&ccedil;oit le message de bienvenue avec le lien de son espace. Les r&eacute;ponses vous reviennent.</span>
+    <input type="email" id="inv-email" placeholder="email du client" style="padding:6px 9px;border:1px solid #ccc;border-radius:3px;min-width:240px;font:inherit;">
+    <input type="text" id="inv-prenom" placeholder="pr&eacute;nom (facultatif)" style="padding:6px 9px;border:1px solid #ccc;border-radius:3px;min-width:150px;font:inherit;">
+    <button class="btn-ghost" id="inv-btn" onclick="envoyerInvitation()">Envoyer l&#8217;invitation</button>
+    <span class="maj" id="inv-maj" role="status" aria-live="polite"></span>
   </div>
   <div id="saisie-cabinet" style="display:none;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 20px;background:#fff8e1;border-bottom:1px solid #f0d78a;font-size:13.5px;">
     <span>Le formulaire s&#8217;ouvre dans un nouvel onglet, &agrave; votre nom ; le dossier est enregistr&eacute; au nom du client, qui re&ccedil;oit l&#8217;acc&egrave;s &agrave; son espace &agrave; la transmission.</span>
@@ -435,6 +443,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260916k"></script>
+<script src="app.js?v=20260916l"></script>
 </body>
 </html>
