@@ -7,9 +7,10 @@ var SESSION = { email: '', nom: '', role: '', token: '' };
 var DATA = { colonnes: [], lignes: [], idx: {} };
 var VUE = 'dossiers';
 var TRI = { col: 'Dénomination', dir: 1 };
-var LIGNE_OUVERTE = null;
+var LIGNE_OUVERTE = null, REVENIR_SUR_FICHE = false;
+var PAGE = 1, PAR_PAGE = 50;
 
-function api(payload, cb) {
+function api(payload, cb, essai) {
   var debut = Date.now();
   payload.t0 = debut;   // permet au serveur de mesurer le temps passé avant lui
   fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) })
@@ -25,6 +26,13 @@ function api(payload, cb) {
     })
     .catch(function (e) { return { ok: false, error: 'Erreur réseau : ' + e.message }; })
     .then(function (res) {
+      // Réponse de la page d'accueil du service : la requête a été transformée en
+      // simple consultation en cours de route. On la refait une fois.
+      if (res && res.service === 'TEC AUDIT Onboarding' && payload.action) {
+        if (!essai) { console.warn('portail · ' + payload.action + ' · réponse hors sujet, nouvel essai'); api(payload, cb, 1); return; }
+        cb({ ok: false, error: 'Le serveur n\'a pas traité la demande (deux essais). Rechargez la page.' });
+        return;
+      }
       // Une session expirée interrompt tout : on le dit clairement plutôt que
       // de laisser l'utilisateur cliquer dans le vide.
       if (res && !res.ok && /Session expirée/.test(res.error || '')) { sessionExpiree(); return; }
@@ -1287,6 +1295,11 @@ function rendreDossiers(L) {
     return TRI.dir * x.localeCompare(y, 'fr');
   });
 
+  var pages = Math.max(1, Math.ceil(tri.length / PAR_PAGE));
+  if (PAGE > pages) PAGE = pages;
+  var debut = (PAGE - 1) * PAR_PAGE;
+  var visibles = tri.slice(debut, debut + PAR_PAGE);
+
   var html = '<div class="table-wrap"><table><thead><tr>' +
     cols.map(function (c) {
       var actif = TRI.col === c.tri;
@@ -1294,7 +1307,7 @@ function rendreDossiers(L) {
         '<button class="th-btn" onclick="trier(\'' + c.tri + '\')">' + esc(c.t) +
         '<span class="tri">' + (actif ? (TRI.dir === 1 ? '▲' : '▼') : '') + '</span></button></th>';
     }).join('') + '</tr></thead><tbody>' +
-    tri.map(function (l) {
+    visibles.map(function (l) {
       var id = l[DATA.iLigne];
       var ouverte = LIGNE_OUVERTE === id;
       return '<tr class="ligne' + (ouverte ? ' ouverte' : '') + '" tabindex="0" aria-expanded="' + ouverte + '"' +
@@ -1302,22 +1315,51 @@ function rendreDossiers(L) {
         cols.map(function (c) { return '<td>' + c.r(l) + '</td>'; }).join('') + '</tr>' +
         (ouverte ? '<tr class="detail"><td colspan="' + cols.length + '">' + ficheDossier(l) + '</td></tr>' : '');
     }).join('') + '</tbody></table></div>' +
+    pagination(tri.length, pages, debut, visibles.length) +
     (tri.length ? '' : '<p class="vide">Aucun résultat.</p>');
   $('liste').innerHTML = html;
-  if (LIGNE_OUVERTE) {
+  if (LIGNE_OUVERTE && REVENIR_SUR_FICHE) {
     var d = document.querySelector('.detail');
     if (d) d.scrollIntoView({ block: 'nearest' });
   }
+  REVENIR_SUR_FICHE = false;
+}
+
+// Navigation entre les pages, affichée seulement quand il y a de quoi naviguer.
+function pagination(total, pages, debut, nb) {
+  if (total <= PAR_PAGE) return total ? '<p class="pagination-info">' + total + ' dossier' + (total > 1 ? 's' : '') + '.</p>' : '';
+  var bouton = function (page, libelle, actif, desactive) {
+    if (desactive) return '<span class="page-btn off">' + libelle + '</span>';
+    return '<button class="page-btn' + (actif ? ' actif' : '') + '" onclick="allerPage(' + page + ')">' + libelle + '</button>';
+  };
+  var liens = '';
+  for (var i = 1; i <= pages; i++) {
+    if (i === 1 || i === pages || Math.abs(i - PAGE) <= 2) liens += bouton(i, String(i), i === PAGE);
+    else if (Math.abs(i - PAGE) === 3) liens += '<span class="page-ellipse">…</span>';
+  }
+  return '<div class="pagination">' +
+    '<span class="pagination-info">Dossiers ' + (debut + 1) + ' à ' + (debut + nb) + ' sur ' + total + '</span>' +
+    '<span class="pages">' + bouton(PAGE - 1, '‹ Précédent', false, PAGE === 1) + liens +
+    bouton(PAGE + 1, 'Suivant ›', false, PAGE === pages) + '</span></div>';
+}
+function allerPage(p) {
+  PAGE = p;
+  LIGNE_OUVERTE = null;   // la fiche ouverte n'est plus forcément sur cette page
+  rendre();
+  var t = document.querySelector('.table-wrap');
+  if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 function trier(col) {
   if (TRI.col === col) TRI.dir = -TRI.dir;
   else { TRI.col = col; TRI.dir = 1; }
+  PAGE = 1;
   rendre();
 }
 
 function ouvrirLigne(id) {
   LIGNE_OUVERTE = (LIGNE_OUVERTE === id) ? null : id;
+  REVENIR_SUR_FICHE = !!LIGNE_OUVERTE;
   rendre();
 }
 
@@ -1565,7 +1607,13 @@ function etapes(e) {
   var prealableOk = !e.confrere || repriseOk;
   l.push({ nom: 'Dossier créé', fait: !!e.codeDossier, action: (!e.codeDossier && prealableOk) ? 'dossier' : null });
   l.push({ nom: 'Lettre de mission', fait: !!e.ldm, action: (e.codeDossier && !e.ldm) ? 'ldm' : null });
-  l.push({ nom: 'Signature', fait: false, futur: true });
+  // « Générée » et « signée » sont deux choses différentes : le statut vient de la
+  // fiche du dossier, pas de la date de génération.
+  var st2 = String(e.statutLdm || '').toUpperCase();
+  var signee = st2.indexOf('SIGNÉE') === 0 || st2.indexOf('SIGNEE') === 0;
+  var horsCampagne = st2.indexOf('HORS') === 0;
+  l.push({ nom: 'Signature', fait: signee, attente: !!e.ldm && !signee && !horsCampagne,
+           futur: !e.ldm && !signee });
   return l;
 }
 
@@ -1869,7 +1917,7 @@ document.addEventListener('DOMContentLoaded', function () {
   verifierLienReinit();
   restaurerSessionAdmin();
   $('saisie-email').addEventListener('keydown', function (e) { if (e.key === 'Enter') ouvrirSaisieCabinet('constitution'); });
-  ['q'].forEach(function (id) { $(id).addEventListener('input', rendre); });
+  ['q'].forEach(function (id) { $(id).addEventListener('input', function () { PAGE = 1; rendre(); }); });
   // Raccourci « / » : focus sur la recherche depuis n'importe où
   document.addEventListener('keydown', function (e) {
     if (e.key === '/' && document.activeElement.tagName !== 'INPUT' &&
@@ -1879,6 +1927,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
   ['f-perimetre', 'f-associe', 'f-collab', 'f-ldm', 'f-forme'].forEach(function (id) {
-    $(id).addEventListener('change', rendre);
+    $(id).addEventListener('change', function () { PAGE = 1; rendre(); });
   });
 });
