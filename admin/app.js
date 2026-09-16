@@ -668,6 +668,7 @@ function ficheDossier(l) {
     (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocHonoraires(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
+    (SESSION.role === 'associe' ? blocLettreConfraternelle(l, lignesSheet) : '') +
     blocLdmRetour(l, lignesSheet) +
   '</div>';
 }
@@ -1286,6 +1287,57 @@ function enregistrerHonoraires(ligne, btn) {
       msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko';
     }
   });
+}
+
+// Un confrère omis à la saisie, ou découvert après coup : la lettre se met en
+// file depuis la fiche, et le parcours reprend son cours normal.
+function blocLettreConfraternelle(l, ligne) {
+  var code = val(l, 'Code dossier');
+  if (!code) return '';
+  var c = function (suffixe, libelle, largeur, type) {
+    return '<label>' + esc(libelle) + ' <input type="' + (type || 'text') + '" id="lc-' + ligne + '-' + suffixe +
+      '" style="width:' + largeur + ';"></label>';
+  };
+  return '<details class="actions ldm-bloc" style="display:block;">' +
+    '<summary style="cursor:pointer;color:var(--blue-dark);font-weight:600;">Lettre confraternelle — à émettre après coup</summary>' +
+    '<div class="lettre-meta" style="margin:6px 0;">À utiliser quand un ancien expert-comptable n\'avait pas été signalé ' +
+    'à la saisie. La lettre rejoint la file des « Nouveaux dossiers », d\'où elle s\'envoie comme les autres.</div>' +
+    '<div class="lettre-actions">' +
+    c('cabinet', 'Cabinet', '190px') +
+    c('confrere', 'Confrère', '150px') +
+    '<label>Civilité <select id="lc-' + ligne + '-civilite"><option>Monsieur</option><option>Madame</option></select></label>' +
+    '</div><div class="lettre-actions" style="margin-top:6px;">' +
+    c('email', 'Email', '190px', 'email') +
+    c('adresse', 'Adresse', '230px') +
+    c('exercice', 'Dernier exercice', '110px') +
+    '<button class="btn-envoyer" onclick="creerLettre(' + ligne + ', \'' + escJs(code) + '\', this)">Mettre en file</button>' +
+    '<span class="maj" role="status" aria-live="polite"></span></div></details>';
+}
+
+function creerLettre(ligne, code, btn) {
+  var msg = btn.parentNode.querySelector('.maj');
+  var v = function (suffixe) { return ($('lc-' + ligne + '-' + suffixe) || {}).value || ''; };
+  if (!v('cabinet').trim() && !v('confrere').trim()) {
+    msg.textContent = '⚠ Indiquez au moins le cabinet ou le nom du confrère.';
+    msg.className = 'maj ko';
+    return;
+  }
+  btn.disabled = true; msg.textContent = '…'; msg.className = 'maj';
+  api({ action: 'adminCreerLettre', email: SESSION.email, token: SESSION.token, code: code,
+        cabinet: v('cabinet'), confrere: v('confrere'), civilite: v('civilite'),
+        emailConfrere: v('email'), adresseConfrere: v('adresse'), dernierEx: v('exercice') },
+    function (res) {
+      btn.disabled = false;
+      if (res && res.ok) {
+        msg.textContent = '✓ ' + res.message + ' Elle apparaît dans « Nouveaux dossiers ».';
+        msg.className = 'maj ok';
+        ENTREES_LE = 0;   // le pipeline doit refléter la nouvelle étape
+        chargerEntrees(true);
+      } else {
+        msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
+        msg.className = 'maj ko';
+      }
+    });
 }
 
 function blocLDM(l, ligne) {
