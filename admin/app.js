@@ -1787,7 +1787,7 @@ function rendreEntrees() {
   try {
     html = groupe('🔴 À traiter', aTraiter, 'Ces dossiers attendent une action de votre part.') +
       groupe('🟠 En attente', enAttente, 'Délai confraternel de 15 jours, ou lettre de mission envoyée dont le retour signé se fait attendre.') +
-      groupe('🟢 Terminés', termines, '', true);
+      groupeTermines(termines);
   } catch (e) {
     console.error('rendreEntrees', e);
     html = '<div class="alerte">⚠ Affichage impossible : ' + esc(e.message) + '. Rechargez la page ; si cela persiste, prévenez Emmanuel.</div>';
@@ -1795,6 +1795,29 @@ function rendreEntrees() {
   $('liste').innerHTML = html;
 
   majOngletEntrees();
+}
+
+var TERMINES_JOURS = 90, TOUS_TERMINES = false;
+function basculerTermines() { TOUS_TERMINES = !TOUS_TERMINES; rendreEntrees(); }
+
+// Un dossier bouclé n'a plus besoin d'être sous les yeux : au-delà de trois mois
+// il reste consultable, mais ne charge plus la vue.
+function groupeTermines(L) {
+  var recents = L, anciens = [];
+  if (!TOUS_TERMINES) {
+    recents = []; anciens = [];
+    L.forEach(function (e) {
+      var j = joursRestants(e.date);   // négatif : nombre de jours écoulés
+      if (j !== null && -j > TERMINES_JOURS) anciens.push(e); else recents.push(e);
+    });
+  }
+  var aide = anciens.length
+    ? 'Les ' + anciens.length + ' dossier' + (anciens.length > 1 ? 's' : '') + ' terminés il y a plus de trois mois sont masqués. ' +
+      '<button class="lien-pieces" onclick="basculerTermines()">Tout afficher</button>'
+    : (TOUS_TERMINES && L.length
+        ? '<button class="lien-pieces" onclick="basculerTermines()">Masquer les plus anciens</button>' : '');
+  return groupe('🟢 Terminés', recents, aide, true) ||
+    (aide ? '<div class="grp"><p class="grp-aide">' + aide + '</p></div>' : '');
 }
 
 function groupe(titre, L, aide, replie) {

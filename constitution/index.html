@@ -448,8 +448,15 @@
           <label>Forme juridique</label>
           <select id="forme" onchange="onFormeChange()">
             <option value="SAS">SAS — Société par Actions Simplifiée</option>
+            <option value="SASU">SASU — SAS à associé unique</option>
             <option value="SARL">SARL — Société à Responsabilité Limitée</option>
+            <option value="EURL">EURL — SARL à associé unique</option>
+            <option value="SNC">SNC — Société en Nom Collectif</option>
+            <option value="SELARL">SELARL — Société d'Exercice Libéral à Responsabilité Limitée</option>
+            <option value="SELAS">SELAS — Société d'Exercice Libéral par Actions Simplifiée</option>
             <option value="SCI">SCI — Société Civile Immobilière</option>
+            <option value="SCM">SCM — Société Civile de Moyens</option>
+            <option value="SCP">SCP — Société Civile Professionnelle</option>
             <option value="EI">Entreprise individuelle</option>
           </select>
         </div>
@@ -806,34 +813,60 @@ function goTo(n) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// Caractéristiques de chaque forme, réunies ici pour que l'ajout d'une forme
+// ne demande pas de retoucher la logique dispersée dans le formulaire.
+//   dirigeant  : gerant | president | entrepreneur
+//   unique     : un seul associé possible
+//   civile     : société civile — pas de dépôt de capital exigé
+//   affilie    : le dirigeant relève d'un régime social (ACRE, attestation Vitale)
+var FORMES = {
+  'SAS':    { dirigeant: 'president',    affilie: true,  libelle: 'SAS' },
+  'SASU':   { dirigeant: 'president',    affilie: true,  unique: true, libelle: 'SASU' },
+  'SARL':   { dirigeant: 'gerant',       affilie: true,  libelle: 'SARL' },
+  'EURL':   { dirigeant: 'gerant',       affilie: true,  unique: true, libelle: 'EURL' },
+  'SNC':    { dirigeant: 'gerant',       affilie: true,  libelle: 'SNC' },
+  'SELARL': { dirigeant: 'gerant',       affilie: true,  reglementee: true, libelle: 'SELARL' },
+  'SELAS':  { dirigeant: 'president',    affilie: true,  reglementee: true, libelle: 'SELAS' },
+  'SCI':    { dirigeant: 'gerant',       affilie: false, civile: true, libelle: 'SCI' },
+  'SCM':    { dirigeant: 'gerant',       affilie: false, civile: true, libelle: 'SCM' },
+  'SCP':    { dirigeant: 'gerant',       affilie: true,  civile: true, reglementee: true, libelle: 'SCP' },
+  'EI':     { dirigeant: 'entrepreneur', affilie: true,  unique: true, libelle: 'Entreprise individuelle' }
+};
+function formeCourante() { return (document.getElementById('forme') || {}).value || 'SAS'; }
+function infoForme(f) { return FORMES[f || formeCourante()] || FORMES['SAS']; }
+
 var isSAS = true;
 
 // Affichages qui dépendent de la forme, sans rien régénérer (utilisé aussi
 // après restauration d'un brouillon)
 function appliquerAffichagesForme() {
-  var ei = document.getElementById('forme').value === 'EI';
+  var forme = formeCourante(), info = infoForme(forme);
+  var ei = (forme === 'EI');
   var capField = document.getElementById('capital') && document.getElementById('capital').closest('.field');
   if (capField) capField.style.display = ei ? 'none' : '';
+  // Un associé unique par construction : le nombre n'est pas à choisir
   var nbA = document.getElementById('nb-assoc');
-  if (nbA && nbA.closest('.field')) nbA.closest('.field').style.display = ei ? 'none' : '';
+  if (nbA && nbA.closest('.field')) nbA.closest('.field').style.display = info.unique ? 'none' : '';
   var tabs = document.querySelectorAll('.step-tab');
-  if (tabs[1]) tabs[1].textContent = ei ? 'Entrepreneur' : 'Associés';
+  if (tabs[1]) tabs[1].textContent = ei ? 'Entrepreneur' : (info.unique ? 'Associé' : 'Associés');
   var eiBloc = document.getElementById('ei-bloc');
   if (eiBloc) eiBloc.style.display = ei ? '' : 'none';
-  var sci = document.getElementById('forme').value === 'SCI';
   var sciBloc = document.getElementById('sci-bloc');
-  if (sciBloc) sciBloc.style.display = sci ? '' : 'none';
+  if (sciBloc) sciBloc.style.display = (forme === 'SCI') ? '' : 'none';
+  // Attestation Vitale : seulement là où le dirigeant relève d'un régime social
   var vitale = document.getElementById('piece-vitale');
-  if (vitale) vitale.style.display = sci ? 'none' : '';
+  if (vitale) vitale.style.display = info.affilie ? '' : 'none';
   if (typeof majPieceApport === 'function') majPieceApport();
 }
 
 function onFormeChange() {
-  var f = document.getElementById('forme').value;
-  isSAS = (f === 'SAS');
+  var f = document.getElementById('forme').value, info = infoForme(f);
+  isSAS = (info.dirigeant === 'president');
   var nbA = document.getElementById('nb-assoc');
-  if (f === 'EI' && nbA && nbA.value !== '1') { nbA.value = '1'; updateAssocCount(1); }
-  else if (f === 'EI') { updateAssocCount(1); }
+  if (info.unique) {
+    if (nbA && nbA.value !== '1') nbA.value = '1';
+    updateAssocCount(1);
+  }
   appliquerAffichagesForme();
   updateManBlocks();
   (function(){
@@ -1052,10 +1085,10 @@ function makeManBlock(idx, nbAssoc) {
   var n = idx + 1;
   var p = 'man' + idx;
   var forme = document.getElementById('forme') ? document.getElementById('forme').value : 'SAS';
-  var isSARLlocal = (forme === 'SARL' || forme === 'SCI');
-  var fonctionOpts = forme === 'EI'
+  var info = infoForme(forme);
+  var fonctionOpts = info.dirigeant === 'entrepreneur'
     ? '<option value="entrepreneur">Entrepreneur individuel</option>'
-    : isSARLlocal
+    : info.dirigeant === 'gerant'
     ? '<option value="gerant">Gérant(e)</option>'
     : '<option value="president">Président(e)</option><option value="dg">Directeur(trice) Général(e)</option>';
 
@@ -1201,8 +1234,8 @@ function onManAssocChange(idx) {
   var profChk = document.querySelector('input[name="a' + ai + '-prof"]:checked');
   var isDemandeur = profChk && profChk.value === 'demandeur';
   var acreWrap = document.getElementById(p + '-acre-wrap');
-  var sci = document.getElementById('forme').value === 'SCI';   // gérant de SCI non affilié : pas d'ACRE
-  if (acreWrap) acreWrap.style.display = (isDemandeur && !sci) ? '' : 'none';
+  var affilie = infoForme().affilie;   // un gérant non affilié n'ouvre pas droit à l'ACRE
+  if (acreWrap) acreWrap.style.display = (isDemandeur && affilie) ? '' : 'none';
   if (typeof renderAcreVerdict === 'function') renderAcreVerdict(idx);
 }
 
@@ -1223,12 +1256,12 @@ function onManQualiteChange(idx, nbAssoc) {
 }
 
 function checkPresidentUnique() {
-  // Only relevant for SAS
-  var forme = document.getElementById('forme') ? document.getElementById('forme').value : 'SAS';
+  // Vaut pour toute forme dirigée par un président : SAS, SASU, SELAS
+  var forme = formeCourante(), info = infoForme(forme);
   var errEl = document.getElementById('man-president-error');
-  if (forme !== 'SAS') {
+  if (info.dirigeant !== 'president') {
     if (errEl) errEl.style.display = 'none';
-    return true; // SARL and SCI don't need a president
+    return true;   // les formes à gérant n'ont pas de président
   }
   var nb = parseInt(document.getElementById('nb-man') ? document.getElementById('nb-man').value : '1') || 1;
   var nbPresidents = 0;
@@ -1238,13 +1271,13 @@ function checkPresidentUnique() {
   }
   if (nbPresidents === 0) {
     if (errEl) {
-      errEl.innerHTML = '⚠ Une SAS doit obligatoirement avoir un <strong>Président(e)</strong>. Veuillez attribuer cette fonction à l’un des mandataires.';
+      errEl.innerHTML = '⚠ Une ' + info.libelle + ' doit obligatoirement avoir un(e) <strong>Président(e)</strong>. Veuillez attribuer cette fonction à l’un des mandataires.';
       errEl.style.display = 'block';
     }
     return false;
   } else if (nbPresidents > 1) {
     if (errEl) {
-      errEl.innerHTML = '⚠ Une SAS ne peut avoir qu’un seul <strong>Président(e)</strong>. Vous en avez renseigné <strong>' + nbPresidents + '</strong>. Veuillez corriger les fonctions.';
+      errEl.innerHTML = '⚠ Une ' + info.libelle + ' ne peut avoir qu’un(e) seul(e) <strong>Président(e)</strong>. Vous en avez renseigné <strong>' + nbPresidents + '</strong>. Veuillez corriger les fonctions.';
       errEl.style.display = 'block';
     }
     return false;
@@ -1264,19 +1297,20 @@ function updateManBlocks() {
   var forme = document.getElementById('forme') ? document.getElementById('forme').value : 'SAS';
   var noticeEl = document.getElementById('man-notice');
   if (noticeEl) {
-    if (forme === 'SARL') {
-      noticeEl.innerHTML = '<strong>SARL :</strong> Il peut y avoir un ou plusieurs gérants, associés ou non associés.';
-      noticeEl.style.display = 'block';
-    } else if (forme === 'SCI') {
-      noticeEl.innerHTML = '<strong>SCI :</strong> Il peut y avoir un ou plusieurs gérants, associés ou non associés. Un gérant non rémunéré n’est pas affilié : pas de demande d’ACRE.';
-      noticeEl.style.display = 'block';
-    } else if (forme === 'EI') {
-      noticeEl.innerHTML = '<strong>Entreprise individuelle :</strong> vous êtes le représentant légal. Cette étape sert à vérifier votre éligibilité à l’ACRE.';
-      noticeEl.style.display = 'block';
+    var infoN = infoForme(forme);
+    var texte;
+    if (infoN.dirigeant === 'entrepreneur') {
+      texte = '<strong>Entreprise individuelle :</strong> vous êtes le représentant légal. Cette étape sert à vérifier votre éligibilité à l’ACRE.';
+    } else if (infoN.dirigeant === 'president') {
+      texte = '<strong>' + infoN.libelle + ' :</strong> il doit y avoir <strong>un(e) Président(e) obligatoirement</strong> et, éventuellement, un ou plusieurs Directeurs Généraux.';
     } else {
-      noticeEl.innerHTML = '<strong>SAS :</strong> Il doit y avoir <strong>un Président(e) obligatoirement</strong> et, éventuellement, un ou plusieurs Directeurs Généraux.';
-      noticeEl.style.display = 'block';
+      texte = '<strong>' + infoN.libelle + ' :</strong> il peut y avoir un ou plusieurs gérants, associés ou non associés.';
+      if (!infoN.affilie) texte += ' Un gérant non rémunéré n’est pas affilié : pas de demande d’ACRE.';
     }
+    if (infoN.unique && infoN.dirigeant !== 'entrepreneur') texte += ' Cette forme n’a qu’un seul associé.';
+    if (infoN.reglementee) texte += ' Profession réglementée : l’inscription à l’ordre professionnel devra être justifiée.';
+    noticeEl.innerHTML = texte;
+    noticeEl.style.display = 'block';
   }
 
   container.innerHTML = '';
@@ -1724,7 +1758,7 @@ function updateAcrePieceVisibility() {
   var nbM = parseInt((document.getElementById('nb-man') || {value:'0'}).value) || 0;
   var show = false;
   for (var i = 0; i < nbM; i++) if (acreRadio('man' + i + '-acre') === 'oui') show = true;
-  if (document.getElementById('forme').value === 'SCI') show = false;   // gérant de SCI non affilié : pas d'ACRE
+  if (!infoForme().affilie) show = false;   // dirigeant non affilié : pas d'ACRE
   li.style.display = show ? '' : 'none';
 }
 
