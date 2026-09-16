@@ -1832,7 +1832,16 @@ function carteEntree(e) {
 
 function actionEntree(e) {
   var c = etapeCourante(e);
-  if (!c) return '<div class="entree-act"><span class="maj ok">✓ Parcours terminé — en attente de signature client.</span></div>';
+  // Message de fin : il dit ce qui s'est réellement passé, pas un texte figé.
+  if (!c) {
+    var st3 = String(e.statutLdm || '').toUpperCase();
+    var fin = 'Parcours terminé.';
+    if (st3.indexOf('SIGNÉE') === 0 || st3.indexOf('SIGNEE') === 0) fin = 'Parcours terminé — lettre de mission signée.';
+    else if (st3.indexOf('HORS') === 0) fin = 'Parcours terminé — dossier hors campagne de lettre de mission.';
+    else if (st3.indexOf('À VÉRIFIER') === 0 || st3.indexOf('A VERIFIER') === 0) fin = 'Parcours terminé — lettre signée à vérifier (retour partiel).';
+    else if (e.ldm) fin = 'Parcours terminé — en attente du retour signé.';
+    return '<div class="entree-act"><span class="maj ok">✓ ' + esc(fin) + '</span></div>';
+  }
   var ligne = e.ligne;
 
   if (c.action === 'lettre') {
