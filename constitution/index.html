@@ -2211,6 +2211,16 @@ function listeFichiers() {
   return personnesFormulaire().concat(fixes);
 }
 
+// Rejoue une validation d'étape sans changer de page : la fonction appelle
+// goTo() quand tout est bon, on intercepte cet appel pour en faire un verdict.
+function etapeValidee(fn) {
+  var ok = false, vrai = goTo;
+  goTo = function () { ok = true; };
+  try { fn(); } catch (e) { ok = false; }
+  goTo = vrai;
+  return ok;
+}
+
 function validerAvecRGPD() {
   var cb = document.getElementById('rgpd-consent');
   var errEl = document.getElementById('rgpd-error');
@@ -2220,6 +2230,21 @@ function validerAvecRGPD() {
     return;
   }
   if (errEl) errEl.style.display = 'none';
+
+  // Les onglets permettent d'arriver ici sans avoir rempli les étapes.
+  var etapes = [
+    { n: 0, nom: 'La société',   fn: goToSocieteNext },
+    { n: 1, nom: 'Les associés', fn: goToAssocNext },
+    { n: 2, nom: 'Le mandataire', fn: goToAfterMan }
+  ];
+  for (var i = 0; i < etapes.length; i++) {
+    if (!etapeValidee(etapes[i].fn)) {
+      goTo(etapes[i].n);   // la validation a déjà marqué les champs concernés
+      alert('Il manque des informations à l\u2019étape « ' + etapes[i].nom + ' ».\n\n' +
+            'Les champs à compléter y sont signalés en rouge.');
+      return;
+    }
+  }
   validerFormulaire();
 }
 

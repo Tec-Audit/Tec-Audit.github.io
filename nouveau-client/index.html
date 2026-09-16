@@ -691,6 +691,34 @@ function rendreLigne(p) {
     '<input type="file" id="file-' + p.id + '" multiple accept="image/*,.pdf" onchange="updateFileLabel(\'' + p.id + '\')"></label>' +
     '<div class="file-names" id="' + p.id + '-names"></div></li>';
 }
+// La liste des pièces dépend de réponses données plus haut (régime de TVA) :
+// on la reconstruit à l'entrée dans l'étape, en conservant les fichiers déjà
+// choisis et en libérant ceux dont la pièce n'a plus lieu d'être.
+function rafraichirPieces() {
+  var ul = document.getElementById('pieces');
+  if (!ul) return;
+  var visibles = PIECES.filter(pieceVisible);
+  var signature = visibles.map(function (p) { return p.id; }).join(';');
+  if (ul.dataset.signature === signature) return;
+  // Mémoriser les fichiers déjà choisis avant de reconstruire
+  var gardes = {};
+  PIECES.forEach(function (p) {
+    var inp = document.getElementById('file-' + p.id);
+    if (inp && inp.files && inp.files.length) gardes[p.id] = inp.files;
+  });
+  ul.dataset.signature = signature;
+  ul.innerHTML = visibles.map(rendreLigne).join('');
+  visibles.forEach(function (p) {
+    if (!gardes[p.id]) return;
+    var inp = document.getElementById('file-' + p.id);
+    if (!inp) return;
+    var dt = new DataTransfer();
+    for (var i = 0; i < gardes[p.id].length; i++) dt.items.add(gardes[p.id][i]);
+    inp.files = dt.files;
+    updateFileLabel(p.id);
+  });
+}
+
 function buildPiecesBE() {
   var zone = document.getElementById('pieces-be');
   if (!zone) return;
@@ -707,6 +735,7 @@ document.addEventListener('DOMContentLoaded', function () {
   ajouterBE();
   var ul = document.getElementById('pieces');
   ul.innerHTML = PIECES.filter(pieceVisible).map(rendreLigne).join('');
+  ul.dataset.signature = PIECES.filter(pieceVisible).map(function (p) { return p.id; }).join(';');
 
   var el = document.getElementById('rgpd-email');
   if (el) el.textContent = ['contact', 'tec-audit.fr'].join('@');
@@ -791,7 +820,7 @@ function goTo(n) {
     // N° de sécurité sociale : seulement si le dirigeant peut être affilié (pas pour une SCI, gérant non rémunéré)
     var ss = document.getElementById('d-ss'); if (ss && ss.closest('.field')) ss.closest('.field').style.display = estSCI() ? 'none' : '';
   }
-  if (n === 4) buildPiecesBE();
+  if (n === 4) { rafraichirPieces(); buildPiecesBE(); }
   document.querySelectorAll('.section').forEach(function (s, i) { s.classList.toggle('active', i === n); });
   document.querySelectorAll('.step-tab').forEach(function (t, i) { t.classList.toggle('active', i === n); });
   window.scrollTo({ top: 0 });
@@ -1214,11 +1243,42 @@ function generateRecapPDF() {
 // ══════════════════════════════════════════════════════════════
 //  Envoi
 // ══════════════════════════════════════════════════════════════
+// Le minimum pour qu'un dossier soit exploitable par le cabinet. Les onglets de
+// progression permettent d'atteindre le récapitulatif sans rien remplir : on
+// contrôle donc au moment de l'envoi.
+var CHAMPS_REQUIS = [
+  { id: 'denomination', label: 'Dénomination sociale', etape: 0 },
+  { id: 'siret',        label: 'SIRET',                etape: 0, ou: 'siren' },
+  { id: 'd-nom',        label: 'Nom du dirigeant',     etape: 1 },
+  { id: 'd-prenom',     label: 'Prénom du dirigeant',  etape: 1 },
+  { id: 'd-email',      label: 'Email du dirigeant',   etape: 1 }
+];
+
 function validerAvecRGPD() {
   var cb = document.getElementById('rgpd-consent');
   var errEl = document.getElementById('rgpd-error');
   if (!cb.checked) { errEl.style.display = 'block'; return; }
   errEl.style.display = 'none';
+
+  var manquants = [], premier = null;
+  CHAMPS_REQUIS.forEach(function (c) {
+    var el = document.getElementById(c.id);
+    var v = el ? String(el.value || '').trim() : '';
+    if (!v && c.ou) { var alt = document.getElementById(c.ou); v = alt ? String(alt.value || '').trim() : ''; }
+    if (el) el.style.borderColor = v ? '' : '#c0392b';
+    if (!v) { manquants.push(c); if (!premier) premier = c; }
+  });
+  var mail = document.getElementById('d-email');
+  if (mail && mail.value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail.value.trim())) {
+    mail.style.borderColor = '#c0392b';
+    manquants.push({ label: 'Email du dirigeant (format invalide)', etape: 1 });
+    if (!premier) premier = { etape: 1 };
+  }
+  if (manquants.length) {
+    goTo(premier.etape);
+    alert('Merci de compléter :\n\n• ' + manquants.map(function (m) { return m.label; }).join('\n• '));
+    return;
+  }
   validerFormulaire();
 }
 
