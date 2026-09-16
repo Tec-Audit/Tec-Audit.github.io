@@ -286,6 +286,27 @@
   .hero h2 { font-weight: 500; letter-spacing: -0.015em; }
   .header-center h1, .login-title { font-weight: 600; }
 
+/* Filtres à cases : plusieurs valeurs par critère */
+.zone-filtres{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.filtre-boite{position:relative;}
+.filtre-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid #d4dae5;background:#fff;color:#2a3245;
+  padding:7px 11px;border-radius:3px;cursor:pointer;font:inherit;font-size:13px;white-space:nowrap;}
+.filtre-btn:hover{border-color:#9fb0cd;}
+.filtre-btn[aria-expanded="true"]{border-color:#0E4194;box-shadow:0 0 0 2px rgba(14,65,148,.12);}
+.filtre-btn.rempli{background:#eef3fb;border-color:#0E4194;color:#0B316F;font-weight:600;}
+.filtre-btn .compte{background:#0E4194;color:#fff;border-radius:999px;font-size:11px;padding:1px 6px;font-weight:600;}
+.filtre-btn .fleche{color:#8c96a8;font-size:10px;}
+.filtre-panneau{position:absolute;z-index:40;top:calc(100% + 4px);left:0;min-width:238px;max-height:320px;overflow:auto;
+  background:#fff;border:1px solid #c9d2e0;border-radius:4px;box-shadow:0 8px 24px rgba(16,32,64,.16);padding:6px;}
+.filtre-panneau[hidden]{display:none;}
+.filtre-case{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:3px;cursor:pointer;font-size:13.5px;}
+.filtre-case:hover{background:#f2f6fc;}
+.filtre-case input{margin:0;}
+.filtre-case .n{margin-left:auto;color:#8c96a8;font-size:12px;}
+.filtre-vider{width:100%;text-align:left;border:0;border-top:1px solid #eceff4;background:none;color:#0E4194;
+  padding:8px;margin-top:4px;cursor:pointer;font:inherit;font-size:12.5px;}
+.filtre-vider:hover{background:#f2f6fc;}
+
 /* Remise exceptionnelle, à côté du poste concerné */
 .ldm-bloc label.remise{color:#7a5c00;font-size:12.5px;}
 .ldm-bloc label.remise input{border-color:#e0c96a;background:#fffdf5;}
@@ -372,11 +393,7 @@
 
   <div class="bar">
     <input type="search" id="q" aria-label="Rechercher un dossier ou un contact" placeholder="Rechercher ( / ) : soci&eacute;t&eacute;, dirigeant, email, SIRET&hellip;">
-    <div class="filtre"><label for="f-perimetre">P&eacute;rim&egrave;tre</label><select id="f-perimetre"></select></div>
-    <div class="filtre"><label for="f-associe">Associ&eacute;</label><select id="f-associe"></select></div>
-    <div class="filtre"><label for="f-collab">Collaborateur</label><select id="f-collab"></select></div>
-    <div class="filtre"><label for="f-ldm">Statut LDM</label><select id="f-ldm"></select></div>
-    <div class="filtre"><label for="f-forme">Forme</label><select id="f-forme"></select></div>
+    <div id="zone-filtres" class="zone-filtres"></div>
     <button class="btn-ghost" onclick="exporterCSV()">Exporter CSV</button>
     <button class="btn-ghost" id="btn-saisie" onclick="basculerSaisieCabinet()" title="Remplir un formulaire d'entr&eacute;e &agrave; la place du client">&#65291; Saisir un dossier pour un client</button>
   </div>
@@ -418,6 +435,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260916b"></script>
+<script src="app.js?v=20260916c"></script>
 </body>
 </html>

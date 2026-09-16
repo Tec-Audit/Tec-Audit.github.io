@@ -329,37 +329,114 @@ function chargerDossiers(ensuite) {
 function val(l, col) { return l[DATA.idx[col]] || ''; }
 
 // ── Filtres ──────────────────────────────────────────────────
+// Chaque critère accepte plusieurs valeurs : « Marc et Samy », « SCI à l'IR et
+// SCI à l'IS »… Les sélections sont conservées d'un rafraîchissement à l'autre.
+var DEF_FILTRES = [
+  { id: 'perimetre', libelle: 'Périmètre',    valeur: function (l) { return val(l, 'Périmètre'); } },
+  { id: 'associe',   libelle: 'Associé',      valeur: function (l) { return val(l, 'Associé responsable'); }, associesSeuls: true },
+  { id: 'collab',    libelle: 'Collaborateur', valeur: function (l) { return val(l, 'Collaborateur'); }, associesSeuls: true },
+  { id: 'ldm',       libelle: 'Statut LDM',   valeur: function (l) { return val(l, 'Statut LDM'); } },
+  { id: 'forme',     libelle: 'Forme',        valeur: categorieEntite }
+];
+var FILTRES = {};   // id → tableau de valeurs cochées
+
+function filtresActifs(id) { return FILTRES[id] || []; }
+function definitionFiltre(id) {
+  for (var i = 0; i < DEF_FILTRES.length; i++) if (DEF_FILTRES[i].id === id) return DEF_FILTRES[i];
+  return null;
+}
+
 function remplirFiltres() {
-  [['f-perimetre', 'Périmètre'], ['f-associe', 'Associé responsable'],
-   ['f-collab', 'Collaborateur'], ['f-ldm', 'Statut LDM'], ['f-forme', 'Forme']].forEach(function (p) {
-    var sel = $(p[0]);
+  var zone = $('zone-filtres');
+  if (!zone) return;
+  zone.innerHTML = DEF_FILTRES.filter(function (f) {
+    return !(f.associesSeuls && SESSION.role !== 'associe');
+  }).map(function (f) {
     var vals = {};
-    DATA.lignes.forEach(function (l) {
-      var v = val(l, p[1]);
-      if (p[0] === 'f-forme') v = categorieEntite(l);
-      if (v) vals[v] = (vals[v] || 0) + 1;
-    });
-    var keys = Object.keys(vals).sort();
-    sel.innerHTML = '<option value="">Tous</option>' + keys.map(function (k) {
-      return '<option value="' + esc(k) + '">' + esc(k) + ' (' + vals[k] + ')</option>';
+    DATA.lignes.forEach(function (l) { var v = f.valeur(l); if (v) vals[v] = (vals[v] || 0) + 1; });
+    var choisis = filtresActifs(f.id);
+    // Une valeur cochée qui a disparu des données reste proposée, sinon on ne
+    // pourrait plus la décocher.
+    choisis.forEach(function (v) { if (vals[v] === undefined) vals[v] = 0; });
+    var keys = Object.keys(vals).sort(function (a, b) { return a.localeCompare(b, 'fr'); });
+    var cases = keys.map(function (k) {
+      var coche = choisis.indexOf(k) > -1;
+      return '<label class="filtre-case"><input type="checkbox"' + (coche ? ' checked' : '') +
+        ' onchange="basculerFiltre(\'' + f.id + '\', this.value, this.checked)" value="' + esc(k) + '">' +
+        '<span>' + esc(k) + '</span><span class="n">' + vals[k] + '</span></label>';
     }).join('');
+    return '<div class="filtre-boite" id="fb-' + f.id + '">' +
+      '<button class="filtre-btn' + (choisis.length ? ' rempli' : '') + '" aria-expanded="false" aria-haspopup="true"' +
+      ' onclick="ouvrirFiltre(\'' + f.id + '\', event)">' + esc(f.libelle) +
+      (choisis.length ? '<span class="compte">' + choisis.length + '</span>' : '') +
+      '<span class="fleche">▼</span></button>' +
+      '<div class="filtre-panneau" id="fp-' + f.id + '" hidden>' + cases +
+      (choisis.length ? '<button class="filtre-vider" onclick="viderFiltre(\'' + f.id + '\')">Tout décocher</button>' : '') +
+      '</div></div>';
+  }).join('');
+}
+
+function ouvrirFiltre(id, ev) {
+  if (ev) ev.stopPropagation();
+  var ouvert = $('fp-' + id) && !$('fp-' + id).hidden;
+  fermerFiltres();
+  if (ouvert) return;
+  var pan = $('fp-' + id), btn = pan && pan.previousElementSibling;
+  if (!pan) return;
+  pan.hidden = false;
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+}
+function fermerFiltres() {
+  document.querySelectorAll('.filtre-panneau').forEach(function (p) { p.hidden = true; });
+  document.querySelectorAll('.filtre-btn').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+}
+function basculerFiltre(id, valeur, coche) {
+  var liste = filtresActifs(id).slice();
+  var i = liste.indexOf(valeur);
+  if (coche && i === -1) liste.push(valeur);
+  if (!coche && i > -1) liste.splice(i, 1);
+  FILTRES[id] = liste;
+  PAGE = 1;
+  majBoutonFiltre(id);
+  rendre();
+}
+function viderFiltre(id) {
+  FILTRES[id] = [];
+  PAGE = 1;
+  var pan = $('fp-' + id);
+  if (pan) pan.querySelectorAll('input[type=checkbox]').forEach(function (c) { c.checked = false; });
+  majBoutonFiltre(id);
+  rendre();
+}
+// Mise à jour du bouton sans reconstruire le panneau : les cases restent là où
+// l'utilisateur les a laissées, et le menu ne se referme pas sous ses doigts.
+function majBoutonFiltre(id) {
+  var boite = $('fb-' + id);
+  if (!boite) return;
+  var btn = boite.querySelector('.filtre-btn'), choisis = filtresActifs(id), n = choisis.length;
+  var f = definitionFiltre(id);
+  // Les cases suivent l'état, même quand le filtre a été posé ailleurs (anneau, légende)
+  boite.querySelectorAll('.filtre-panneau input[type=checkbox]').forEach(function (c) {
+    c.checked = choisis.indexOf(c.value) > -1;
   });
-  if (SESSION.role !== 'associe') {
-    $('f-collab').parentNode.style.display = 'none';
-    $('f-associe').parentNode.style.display = 'none';
-  }
+  btn.className = 'filtre-btn' + (n ? ' rempli' : '');
+  btn.innerHTML = esc(f ? f.libelle : id) + (n ? '<span class="compte">' + n + '</span>' : '') + '<span class="fleche">▼</span>';
+  var pan = $('fp-' + id);
+  if (!pan) return;
+  var vider = pan.querySelector('.filtre-vider');
+  if (n && !vider) {
+    pan.insertAdjacentHTML('beforeend', '<button class="filtre-vider" onclick="viderFiltre(\'' + id + '\')">Tout décocher</button>');
+  } else if (!n && vider) { vider.remove(); }
 }
 
 function lignesFiltrees() {
   var q = ($('q').value || '').trim().toLowerCase();
-  var fp = $('f-perimetre').value, fa = $('f-associe').value,
-      fc = $('f-collab').value, fl = $('f-ldm').value, ff = $('f-forme').value;
   return DATA.lignes.filter(function (l) {
-    if (fp && val(l, 'Périmètre') !== fp) return false;
-    if (fa && val(l, 'Associé responsable') !== fa) return false;
-    if (fc && val(l, 'Collaborateur') !== fc) return false;
-    if (fl && val(l, 'Statut LDM') !== fl) return false;
-    if (ff && categorieEntite(l) !== ff) return false;
+    // Entre valeurs d'un même critère : « ou ». Entre critères : « et ».
+    for (var i = 0; i < DEF_FILTRES.length; i++) {
+      var f = DEF_FILTRES[i], choisis = filtresActifs(f.id);
+      if (choisis.length && choisis.indexOf(f.valeur(l)) === -1) return false;
+    }
     if (q) {
       var hay = [val(l, 'Dénomination'), val(l, 'Nom'), val(l, 'Prénom'), val(l, 'Email'),
                  val(l, 'Code dossier'), val(l, 'SIRET'), val(l, 'Ville'), val(l, 'Mobile')]
@@ -388,6 +465,7 @@ var COULEURS = ['#0E4194', '#4E7FD0', '#93B3E8', '#16213E', '#B45309', '#2E7D32'
 var REPARTITION = 'forme';   // 'forme' ou 'activite'
 
 function changerRepartition(mode) { REPARTITION = mode; rendre(); }
+function viderFiltreForme() { FILTRES.forme = []; PAGE = 1; remplirFiltres(); rendre(); }
 
 function normActivite(a) {
   var s = String(a || '').trim();
@@ -420,13 +498,13 @@ function rendreDonut(L) {
   if (autres > 0) parts.push({ nom: 'Autres', n: autres, c: '#B8C0CE' });
 
   var total = L.length || 1;
-  var actif = (!parActivite && $('f-forme').value) ? $('f-forme').value : '';
+  var actifs = parActivite ? [] : filtresActifs('forme');
   var R = 54, EP = 16, C = 70;
   var circ = 2 * Math.PI * R;
   var offset = 0;
   var segs = parts.map(function (p) {
     var frac = p.n / total;
-    var estActif = actif && actif === p.nom;
+    var estActif = actifs.indexOf(p.nom) > -1;
     var seg = '<circle r="' + R + '" cx="' + C + '" cy="' + C + '" fill="none"' +
       ' stroke="' + p.c + '" stroke-width="' + (estActif ? EP + 5 : EP) + '"' +
       ' stroke-dasharray="' + (frac * circ - 2) + ' ' + (circ - frac * circ + 2) + '"' +
@@ -440,7 +518,7 @@ function rendreDonut(L) {
   }).join('');
 
   var legende = parts.map(function (p) {
-    var estActif = actif && actif === p.nom;
+    var estActif = actifs.indexOf(p.nom) > -1;
     return '<button class="leg' + (estActif ? ' actif' : '') + '" aria-pressed="' + (estActif ? 'true' : 'false') +
       '"' + (parActivite ? ' disabled style="cursor:default;"' :
         ' onclick="filtrerForme(\'' + p.nom.replace(/'/g, "\\'") + '\')"') + '>' +
@@ -455,7 +533,7 @@ function rendreDonut(L) {
       '<button class="' + (parActivite ? '' : 'on') + '" onclick="changerRepartition(\'forme\')">type d\u2019entité</button>' +
       '<button class="' + (parActivite ? 'on' : '') + '" onclick="changerRepartition(\'activite\')">activité</button>' +
     '</span>' +
-    (actif ? '<button class="dash-reset" onclick="filtrerForme($(\'f-forme\').value)">✕ réinitialiser</button>' : '') +
+    (actifs.length ? '<button class="dash-reset" onclick="viderFiltreForme()">✕ réinitialiser</button>' : '') +
     '</div>' +
     '<div class="donut-row">' +
       '<svg viewBox="0 0 140 140" width="140" height="140" role="img" aria-label="Répartition des dossiers par forme juridique">' +
@@ -494,9 +572,12 @@ function normForme(f) {
 }
 
 function filtrerForme(f) {
-  var sel = $('f-forme');
-  sel.value = (sel.value === f) ? '' : f;   // re-clic = retour à « Tous »
+  var liste = filtresActifs('forme').slice();
+  var i = liste.indexOf(f);
+  if (i > -1) liste.splice(i, 1); else liste.push(f);   // re-clic = on retire
+  FILTRES.forme = liste;
   PAGE = 1;
+  remplirFiltres();   // les cases du panneau doivent suivre
   rendre();
 }
 
@@ -1979,7 +2060,9 @@ document.addEventListener('DOMContentLoaded', function () {
       $('q').focus();
     }
   });
-  ['f-perimetre', 'f-associe', 'f-collab', 'f-ldm', 'f-forme'].forEach(function (id) {
-    $(id).addEventListener('change', function () { PAGE = 1; rendre(); });
+  // Un clic ailleurs, ou Échap, referme le panneau de filtres ouvert
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest || !e.target.closest('.filtre-boite')) fermerFiltres();
   });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') fermerFiltres(); });
 });
