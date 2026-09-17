@@ -402,9 +402,18 @@
     <span>Le client re&ccedil;oit le message de bienvenue avec le lien de son espace. Les r&eacute;ponses vous reviennent.</span>
     <input type="email" id="inv-email" placeholder="email du client" style="padding:6px 9px;border:1px solid #ccc;border-radius:3px;min-width:240px;font:inherit;">
     <input type="text" id="inv-prenom" placeholder="pr&eacute;nom (facultatif)" style="padding:6px 9px;border:1px solid #ccc;border-radius:3px;min-width:150px;font:inherit;">
+    <button class="btn-ghost" id="inv-texte-btn" onclick="basculerTexteInvitation()">&#9998; Texte</button>
     <button class="btn-ghost" id="inv-apercu" onclick="apercuInvitation(this)">&#128065; Aper&ccedil;u</button>
     <button class="btn-ghost" id="inv-btn" onclick="envoyerInvitation()">Envoyer l&#8217;invitation</button>
     <span class="maj" id="inv-maj" role="status" aria-live="polite"></span>
+    <div id="inv-texte-zone" style="display:none;width:100%;">
+      <textarea id="inv-texte" rows="7" spellcheck="true" style="width:100%;padding:9px 11px;border:1px solid #c5d5ea;border-radius:3px;font:inherit;line-height:1.55;resize:vertical;"></textarea>
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:6px;">
+        <button class="btn-ghost" id="inv-texte-save" onclick="enregistrerTexteInvitation(this)">Enregistrer comme texte du cabinet</button>
+        <button class="btn-ghost" onclick="reinitTexteInvitation()">Revenir au texte d&#8217;origine</button>
+        <span style="font-size:12px;color:#666;">Une ligne vide s&eacute;pare deux paragraphes. <code>**gras**</code> met en gras. L&#8217;en-t&ecirc;te, les quatre &eacute;tapes et le pied de page ne changent pas.</span>
+      </div>
+    </div>
   </div>
   <div id="saisie-cabinet" style="display:none;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 20px;background:#fff8e1;border-bottom:1px solid #f0d78a;font-size:13.5px;">
     <span>Le formulaire s&#8217;ouvre dans un nouvel onglet, &agrave; votre nom ; le dossier est enregistr&eacute; au nom du client, qui re&ccedil;oit l&#8217;acc&egrave;s &agrave; son espace &agrave; la transmission.</span>
@@ -444,6 +453,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260916m"></script>
+<script src="app.js?v=20260917a"></script>
 </body>
 </html>

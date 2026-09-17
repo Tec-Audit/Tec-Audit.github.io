@@ -161,6 +161,8 @@
     margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
   }
   .sub-title::before { content: ''; display: block; width: 20px; height: 2px; background: var(--blue); flex-shrink: 0; }
+  .oblig { color: #c0392b; font-weight: 700; margin-left: 3px; }
+  .legende-oblig { font-size: 12px; color: var(--muted, #666); margin: 0 0 14px; }
 
   .choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
   .choice {
@@ -434,6 +436,7 @@
           <p>Dénomination, objet social, capital et siège</p>
         </div>
       </div>
+      <p class="legende-oblig"><span class="oblig">*</span> champs obligatoires — les autres peuvent être complétés plus tard avec le cabinet.</p>
 
       <div class="grid g2">
         <div class="field gc2">
@@ -580,6 +583,7 @@
           <p>Identité, situation familiale et professionnelle</p>
         </div>
       </div>
+      <p class="legende-oblig"><span class="oblig">*</span> champs obligatoires — les autres peuvent être complétés plus tard avec le cabinet.</p>
       <div id="assoc-container"></div>
       <div id="ei-bloc" style="display:none" class="sub">
         <div class="sub-title">Entreprise individuelle — options</div>
@@ -620,6 +624,7 @@
           <h2>Mandataire Social</h2>
         </div>
       </div>
+      <p class="legende-oblig"><span class="oblig">*</span> champs obligatoires — les autres peuvent être complétés plus tard avec le cabinet.</p>
 
       <div class="grid g2" style="margin-bottom:20px;">
         <div class="field">
@@ -652,6 +657,7 @@
           <p>Cochez les documents remis au cabinet</p>
         </div>
       </div>
+      <p class="legende-oblig"><span class="oblig">*</span> champs obligatoires — les autres peuvent être complétés plus tard avec le cabinet.</p>
 
       <ul class="piece-list" id="pieces-personnes"></ul>
       <ul class="piece-list">
@@ -801,6 +807,7 @@ function afficherChargement(actif) {
 // ── Navigation ──────────────────────────────────────────────────
 
 function goTo(n) {
+  try { marquerObligatoires(); } catch (e) {}
   if (n === 2) { try { majAcreMandataires(); } catch(e) {} }
   if (n === 3) { try { buildPiecesPersonnes(); updateAcrePieceVisibility(); majPieceApport(); } catch(e) {} }
   document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
@@ -870,6 +877,7 @@ function onFormeChange() {
   }
   appliquerAffichagesForme();
   updateManBlocks();
+  try { marquerObligatoires(); } catch (e) {}
   (function(){
     var el = document.getElementById('rgpd-email');
     if (el) el.textContent = ['contact','tec-audit.fr'].join('@');
@@ -888,27 +896,13 @@ function goToAfterMan() {
     var mp = 'man' + i;
     var label = 'Mandataire ' + (i+1);
     var missing = [];
-    // Qualité is always set; check fonction
-    var fonEl = document.getElementById(mp + '-fonction');
-    if (!fonEl || !fonEl.value) missing.push('Fonction');
-    // If non-associé, check personal fields
     var qEl = document.getElementById(mp + '-qualite');
-    if (qEl && qEl.value === 'associe') {
-      var selEl = document.getElementById(mp + '-assoc-select');
-      if (!selEl || !selEl.value) missing.push('Associé sélectionné');
-    } else {
-      var reqMan = [
-        {id:mp+'-nom', l:'Nom'},{id:mp+'-prenom', l:'Prénom'},
-        {id:mp+'-naiss', l:'Date de naissance'},{id:mp+'-adresse', l:'Adresse'},
-        {id:mp+'-cp', l:'Code postal'},{id:mp+'-ville', l:'Ville'}
-      ];
-      reqMan.forEach(function(f){
-        var el = document.getElementById(f.id);
-        var empty = !el || !el.value || !el.value.trim();
-        setFieldError(el, empty);
-        if (empty) missing.push(f.l);
-      });
-    }
+    champsMandataire(i).forEach(function (f) {
+      var el = document.getElementById(f.id);
+      var empty = !el || !el.value || !el.value.trim();
+      setFieldError(el, empty);
+      if (empty) missing.push(f.l);
+    });
     // For non-associé only: check sit and prof
     if (qEl && qEl.value === 'non-associe') {
       var sitChecked = document.querySelector('input[name="'+mp+'-sit"]:checked');
@@ -1030,6 +1024,15 @@ function makeAssocBlock(idx) {
   html += '<div class="field"><label>Date et lieu du mariage/PACS</label><input type="text" id="' + p + '-mariage" placeholder="JJ/MM/AAAA \u2014 Ville"></div>';
   html += '<div class="field" id="' + p + '-contrat-wrap" style="display:none"><label>Date du contrat de mariage/PACS</label><input type="date" id="' + p + '-contrat"></div>';
   html += '<div class="field gc2" id="' + p + '-notaire-wrap" style="display:none"><label>Coordonn\u00e9es du notaire</label><input type="text" id="' + p + '-notaire"></div>';
+  html += '<div class="gc2" id="' + p + '-conjoint-wrap" style="display:none">';
+  html += '<div class="sub-title" style="margin:6px 0 8px;">Conjoint</div>';
+  html += '<div class="grid g2" style="margin:0">';
+  html += '<div class="field"><label>Nom du conjoint</label><input type="text" id="' + p + '-cj-nom"></div>';
+  html += '<div class="field"><label>Pr\u00e9nom du conjoint</label><input type="text" id="' + p + '-cj-prenom"></div>';
+  html += '<div class="field"><label>Date de naissance</label><input type="date" id="' + p + '-cj-naiss"></div>';
+  html += '<div class="field"><label>T\u00e9l\u00e9phone</label><input type="tel" id="' + p + '-cj-tel" oninput="formatTel(this)"></div>';
+  html += '<div class="field gc2"><label>Email</label><input type="email" id="' + p + '-cj-email"></div>';
+  html += '</div></div>';
   html += '</div>';
   html += '</div>'; // end sit-wrap
   html += '</div></div>';
@@ -1082,10 +1085,12 @@ function afficherTypeAssocie(idx) {
   var morale = t.value === 'morale';
   document.getElementById(p + '-morale').style.display = morale ? '' : 'none';
   document.getElementById(p + '-physique').style.display = morale ? 'none' : '';
+  try { marquerObligatoires(); } catch (e) {}
 }
 
 document.getElementById('nb-assoc').addEventListener('change', function(){ updateAssocCount(this.value); });
 updateAssocCount(1);
+try { marquerObligatoires(); } catch (e) {}
 
 // ── Mandataire — blocs dynamiques ────────────────────────────
 function makeManBlock(idx, nbAssoc) {
@@ -1176,6 +1181,15 @@ function makeManBlock(idx, nbAssoc) {
   html += '<div class="field"><label>Date et lieu du mariage/PACS</label><input type="text" id="' + p + '-mariage" placeholder="JJ/MM/AAAA \u2014 Ville"></div>';
   html += '<div class="field" id="' + p + '-contrat-wrap" style="display:none"><label>Date du contrat de mariage/PACS</label><input type="date" id="' + p + '-contrat"></div>';
   html += '<div class="field gc2" id="' + p + '-notaire-wrap" style="display:none"><label>Coordonn\u00e9es du notaire</label><input type="text" id="' + p + '-notaire"></div>';
+  html += '<div class="gc2" id="' + p + '-conjoint-wrap" style="display:none">';
+  html += '<div class="sub-title" style="margin:6px 0 8px;">Conjoint</div>';
+  html += '<div class="grid g2" style="margin:0">';
+  html += '<div class="field"><label>Nom du conjoint</label><input type="text" id="' + p + '-cj-nom"></div>';
+  html += '<div class="field"><label>Pr\u00e9nom du conjoint</label><input type="text" id="' + p + '-cj-prenom"></div>';
+  html += '<div class="field"><label>Date de naissance</label><input type="date" id="' + p + '-cj-naiss"></div>';
+  html += '<div class="field"><label>T\u00e9l\u00e9phone</label><input type="tel" id="' + p + '-cj-tel" oninput="formatTel(this)"></div>';
+  html += '<div class="field gc2"><label>Email</label><input type="email" id="' + p + '-cj-email"></div>';
+  html += '</div></div>';
   html += '</div></div>';
   html += '</div></div>';
   // Situation professionnelle
@@ -1283,6 +1297,7 @@ function onManQualiteChange(idx, nbAssoc) {
   }
   // For associé: check immediately
   if (q === 'associe') onManAssocChange(idx);
+  try { marquerObligatoires(); } catch (e) {}
 }
 
 function checkPresidentUnique() {
@@ -1609,6 +1624,9 @@ function onSitChange(prefix) {
   // régime et les célibataires, divorcés et veufs n'en ont aucun.
   var regWrap = document.getElementById(prefix + '-regime-wrap');
   if (regWrap) regWrap.style.display = (val === 'M') ? '' : 'none';
+  var cjWrap = document.getElementById(prefix + '-conjoint-wrap');
+  if (cjWrap) cjWrap.style.display = (val === 'M') ? '' : 'none';
+  try { marquerObligatoires(); } catch (e) {}
   if (val !== 'M') {
     var regime = document.getElementById(prefix + '-regime');
     if (regime) regime.value = '';
@@ -1849,6 +1867,107 @@ function majPieceApport() {
   li.style.display = (sci && oui) ? '' : 'none';
 }
 
+// ── Champs obligatoires ───────────────────────────────────────
+// Une seule liste par étape, lue à la fois par la validation et par l'astérisque
+// affiché : l'un ne peut donc pas désigner un champ que l'autre ignore.
+
+function champsSociete() {
+  var f = [
+    { id: 'denomination', l: 'Dénomination sociale' },
+    { id: 'forme',        l: 'Forme juridique' },
+    { id: 'capital',      l: 'Capital social' }
+  ];
+  if (formeCourante() === 'EI') f = f.filter(function (x) { return x.id !== 'capital'; });
+  var dom = document.querySelector('input[name="domiciliation"]:checked');
+  if (dom && dom.value === 'autre') {
+    f.push({ id: 'adresse', l: 'Adresse' }, { id: 'cp', l: 'Code postal' }, { id: 'ville', l: 'Ville' });
+  }
+  return f;
+}
+
+function champsAssocie(i) {
+  var p = 'a' + i;
+  var morale = (document.getElementById(p + '-type') || {}).value === 'morale';
+  var f = morale ? [
+    { id: p + '-denomination', l: 'Dénomination' }, { id: p + '-siren', l: 'SIREN' },
+    { id: p + '-rep-nom', l: 'Nom du représentant' }, { id: p + '-rep-prenom', l: 'Prénom du représentant' },
+    { id: p + '-pct', l: 'Capital détenu (%)' }
+  ] : [
+    { id: p + '-nom', l: 'Nom' }, { id: p + '-prenom', l: 'Prénom' }, { id: p + '-naiss', l: 'Date de naissance' },
+    { id: p + '-lieu', l: 'Lieu de naissance' }, { id: p + '-nat', l: 'Nationalité' },
+    { id: p + '-adresse', l: 'Adresse' }, { id: p + '-cp', l: 'Code postal' }, { id: p + '-ville', l: 'Ville' },
+    { id: p + '-tel', l: 'Téléphone' }, { id: p + '-email', l: 'Email' }, { id: p + '-pct', l: 'Capital détenu (%)' }
+  ];
+  if (formeCourante() === 'EI') f = f.filter(function (x) { return x.id !== p + '-pct'; });
+  // Marié : le régime commande le sort des parts, on ne peut pas s'en passer.
+  var sit = document.querySelector('input[name="' + p + '-sit"]:checked');
+  if (!morale && sit && sit.value === 'M') f.push({ id: p + '-regime', l: 'Régime matrimonial' });
+  return f;
+}
+
+function champsMandataire(m) {
+  var mp = 'man' + m;
+  var f = [{ id: mp + '-fonction', l: 'Fonction' }];
+  if ((document.getElementById(mp + '-qualite') || {}).value === 'associe') {
+    f.push({ id: mp + '-assoc-select', l: 'Associé sélectionné' });
+    return f;
+  }
+  f.push({ id: mp + '-nom', l: 'Nom' }, { id: mp + '-prenom', l: 'Prénom' },
+         { id: mp + '-naiss', l: 'Date de naissance' }, { id: mp + '-adresse', l: 'Adresse' },
+         { id: mp + '-cp', l: 'Code postal' }, { id: mp + '-ville', l: 'Ville' });
+  var sit = document.querySelector('input[name="' + mp + '-sit"]:checked');
+  if (sit && sit.value === 'M') f.push({ id: mp + '-regime', l: 'Régime matrimonial' });
+  return f;
+}
+
+// Pose l'astérisque sur l'intitulé de chaque champ exigé, et l'enlève partout
+// ailleurs. Appelée à chaque changement d'étape et à chaque bascule qui modifie
+// la liste (forme, type d'associé, situation familiale, qualité du mandataire).
+function marquerObligatoires() {
+  Array.prototype.forEach.call(document.querySelectorAll('.oblig'), function (e) {
+    if (e.parentNode) e.parentNode.removeChild(e);
+  });
+
+  var poser = function (cible) {
+    if (!cible) return;
+    var intitule = null;
+    var champ = cible.closest ? cible.closest('.field') : null;
+    if (champ) {
+      for (var i = 0; i < champ.children.length; i++) {
+        if (champ.children[i].tagName === 'LABEL') { intitule = champ.children[i]; break; }
+      }
+    }
+    if (!intitule) {
+      var bloc = cible.closest ? cible.closest('.sub') : null;
+      intitule = bloc ? bloc.querySelector('.sub-title') : null;
+    }
+    if (!intitule || intitule.querySelector('.oblig')) return;
+    intitule.insertAdjacentHTML('beforeend', '<span class="oblig" title="Champ obligatoire">*</span>');
+  };
+  var poserId = function (id) { poser(document.getElementById(id)); };
+
+  champsSociete().forEach(function (f) { poserId(f.id); });
+  poser(document.querySelector('input[name="domiciliation"]'));
+
+  var nbA = parseInt((document.getElementById('nb-assoc') || {}).value || '1') || 1;
+  for (var i = 0; i < nbA; i++) {
+    champsAssocie(i).forEach(function (f) { poserId(f.id); });
+    if ((document.getElementById('a' + i + '-type') || {}).value !== 'morale') {
+      poser(document.querySelector('input[name="a' + i + '-sit"]'));
+      poser(document.querySelector('input[name="a' + i + '-prof"]'));
+    }
+  }
+
+  var nbM = parseInt((document.getElementById('nb-man') || {}).value || '1') || 1;
+  for (var m = 0; m < nbM; m++) {
+    champsMandataire(m).forEach(function (f) { poserId(f.id); });
+    if ((document.getElementById('man' + m + '-qualite') || {}).value === 'non-associe') {
+      poser(document.querySelector('input[name="man' + m + '-sit"]'));
+      poser(document.querySelector('input[name="man' + m + '-prof"]'));
+    }
+  }
+}
+
 // ── Validation helper ─────────────────────────────────────────
 function setFieldError(el, hasError) {
   if (!el) return;
@@ -1882,18 +2001,11 @@ function goToSocieteNext() {
   // ce sont des arbitrages que le cabinet tranche avec le client, et exiger une
   // réponse à l'aveugle produisait des valeurs fausses. Le collaborateur les
   // complète depuis la fiche du dossier (bloc « Informations à compléter »).
-  var fields = [
-    {id:'denomination', label:'Dénomination sociale'},
-    {id:'forme',        label:'Forme juridique'},
-    {id:'capital',      label:'Capital social'}
-  ];
-  if (document.getElementById('forme').value === 'EI') fields = fields.filter(function (f) { return f.id !== 'capital'; });
-
-  fields.forEach(function(f) {
+  champsSociete().forEach(function(f) {
     var el = document.getElementById(f.id);
     var empty = !el || !el.value || !el.value.trim();
     setFieldError(el, empty);
-    if (empty) { errors.push(f.label); if (!firstEl) firstEl = el; }
+    if (empty) { errors.push(f.l); if (!firstEl) firstEl = el; }
   });
 
   // Domiciliation
@@ -1901,12 +2013,7 @@ function goToSocieteNext() {
   if (!domChk) {
     errors.push('Type de domiciliation');
   } else if (domChk.value === 'autre') {
-    ['adresse','cp','ville'].forEach(function(id) {
-      var el = document.getElementById(id);
-      var empty = !el || !el.value || !el.value.trim();
-      setFieldError(el, empty);
-      if (empty) { errors.push(id === 'adresse' ? 'Adresse' : id === 'cp' ? 'Code postal' : 'Ville'); if (!firstEl) firstEl = el; }
-    });
+    // les trois champs d'adresse figurent déjà dans champsSociete()
   } else {
     // gerant ou fiducys : effacer erreurs visuelles sur ces champs
     ['adresse','cp','ville'].forEach(function(id) {
@@ -1954,17 +2061,7 @@ function goToAssocNext() {
     var p = 'a' + i;
     var label = 'Associé ' + (i+1);
     var morale = document.getElementById(p + '-type') && document.getElementById(p + '-type').value === 'morale';
-    var reqFields = morale ? [
-      {id: p+'-denomination', l:'Dénomination'}, {id: p+'-siren', l:'SIREN'},
-      {id: p+'-rep-nom', l:'Nom du représentant'}, {id: p+'-rep-prenom', l:'Prénom du représentant'},
-      {id: p+'-pct', l:'Capital détenu (%)'}
-    ] : [
-      {id: p+'-nom', l:'Nom'}, {id: p+'-prenom', l:'Prénom'}, {id: p+'-naiss', l:'Date de naissance'},
-      {id: p+'-lieu', l:'Lieu de naissance'}, {id: p+'-nat', l:'Nationalité'}, {id: p+'-adresse', l:'Adresse'},
-      {id: p+'-cp', l:'Code postal'}, {id: p+'-ville', l:'Ville'}, {id: p+'-tel', l:'Téléphone'},
-      {id: p+'-email', l:'Email'}, {id: p+'-pct', l:'Capital détenu (%)'}
-    ];
-    if (eiForm) reqFields = reqFields.filter(function (f) { return f.id !== p + '-pct'; });
+    var reqFields = champsAssocie(i);
     var missing = [];
     reqFields.forEach(function(f) {
       var el = document.getElementById(f.id);
@@ -2055,6 +2152,23 @@ function goToAssocNext() {
 }
 
 // ── Helpers récapitulatif ────────────────────────────────────
+
+// Conjoint d'une personne mariée, en une ligne ; vide si rien n'a été saisi.
+function conjointDe(prefixe) {
+  var val = function (suffixe) {
+    var e = document.getElementById(prefixe + suffixe);
+    return (e && e.value && e.value.trim()) ? e.value.trim() : '';
+  };
+  var nom = [val('-cj-prenom'), val('-cj-nom')].filter(Boolean).join(' ');
+  var reste = [val('-cj-naiss') ? 'né(e) le ' + val('-cj-naiss') : '',
+               val('-cj-tel'), val('-cj-email')].filter(Boolean).join(' — ');
+  return [nom, reste].filter(Boolean).join(' — ');
+}
+
+function ligneConjointPdf(drawRow, prefixe) {
+  var cj = conjointDe(prefixe);
+  if (cj) drawRow('Conjoint', cj);
+}
 function v(id) {
   var e = document.getElementById(id);
   return (e && e.value && e.value.trim()) ? e.value.trim() : '—';
@@ -2226,8 +2340,10 @@ function buildPiecesPersonnes() {
     });
     zone.dataset.signature = signature;
     zone.innerHTML = liste.map(function (p) {
+      var exigee = String(p.tag || '').indexOf('cni') === 0;
       return '<li class="piece-item piece-upload"><div class="piece-label"><span class="piece-icon">&#128196;</span>' +
-        '<div><strong>' + p.label + '</strong><div class="piece-hint">Un ou plusieurs fichiers</div></div></div>' +
+        '<div><strong>' + p.label + (exigee ? '<span class="oblig" title="Champ obligatoire">*</span>' : '') +
+        '</strong><div class="piece-hint">Un ou plusieurs fichiers</div></div></div>' +
         '<label class="upload-btn" for="file-' + p.id + '"><span id="' + p.id + '-text">Choisir les fichiers</span>' +
         '<input type="file" id="file-' + p.id + '" multiple accept="image/*,.pdf" onchange="updateFileLabel(\'' + p.id + '\')"></label>' +
         '<div class="file-names" id="' + p.id + '-names"></div></li>';
@@ -2428,6 +2544,7 @@ function generateRecapPDF() {
     drawRow('Capital d\u00e9tenu', v(p+'-pct') ? v(p+'-pct') + ' %' : '\u2014');
     drawRow('Situation familiale', rv(p+'-sit'));
     drawRow('R\u00e9gime matrimonial', v(p+'-regime'));
+    ligneConjointPdf(drawRow, p);
     drawRow('Situation professionnelle', rv(p+'-prof'));
     if (rv(p+'-prof') === 'liberal') drawRow('Profession lib\u00e9rale', v(p+'-prof-lib'));
     if (rv(p+'-prof') === 'autre') drawRow('Autre situation', v(p+'-prof-autre'));
@@ -2455,6 +2572,8 @@ function generateRecapPDF() {
       drawRow('Email', v(mp+'-email'));
       drawRow('N\u00b0 SS', v(mp+'-ss'));
       drawRow('Situation familiale', rv(mp+'-sit'));
+      drawRow('R\u00e9gime matrimonial', v(mp+'-regime'));
+      ligneConjointPdf(drawRow, mp);
       drawRow('Situation professionnelle', rv(mp+'-prof'));
     }
     var acreChk = document.querySelector('input[name="'+mp+'-acre"]:checked');
@@ -2533,6 +2652,8 @@ function validerFormulaire() {
     add(p + 'Capital détenu', v('a' + i + '-pct') !== '—' ? v('a' + i + '-pct') + ' %' : '—');
     add(p + 'Situation familiale', rv('a' + i + '-sit'));
     add(p + 'Régime matrimonial', v('a' + i + '-regime'));
+    var cj = conjointDe('a' + i);
+    if (cj) add(p + 'Conjoint', cj);
     add(p + 'Situation professionnelle', rv('a' + i + '-prof'));
   }
 

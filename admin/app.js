@@ -294,6 +294,54 @@ function basculerInvitation() {
   if (p.style.display === 'flex') $('inv-email').focus();
 }
 
+// Le corps du message se modifie depuis l'espace interne. Tant qu'on ne demande
+// pas de l'enregistrer, la retouche ne vaut que pour l'envoi en cours.
+var TEXTE_INVITATION = null, TEXTE_INVITATION_ORIGINE = null;
+
+function basculerTexteInvitation() {
+  var z = $('inv-texte-zone');
+  if (z.style.display === 'block') { z.style.display = 'none'; return; }
+  z.style.display = 'block';
+  if (TEXTE_INVITATION !== null) { $('inv-texte').focus(); return; }
+  $('inv-texte').value = '';
+  $('inv-texte').placeholder = 'Chargement du texte…';
+  api({ action: 'adminInviter', email: SESSION.email, token: SESSION.token, apercu: 1 }, function (r) {
+    if (!r || !r.ok) { $('inv-texte').placeholder = '⚠ ' + ((r && r.error) || 'texte indisponible'); return; }
+    TEXTE_INVITATION = r.texte;
+    TEXTE_INVITATION_ORIGINE = r.defaut || r.texte;
+    $('inv-texte').value = r.texte;
+    $('inv-texte').placeholder = '';
+    $('inv-texte').focus();
+  });
+}
+
+// Vide = le serveur reprend le texte du cabinet ; rien n'est imposé depuis ici.
+function texteInvitationSaisi() {
+  var t = $('inv-texte');
+  return (t && t.value.trim()) ? t.value : '';
+}
+
+function reinitTexteInvitation() {
+  if (TEXTE_INVITATION_ORIGINE === null) return;
+  $('inv-texte').value = TEXTE_INVITATION_ORIGINE;
+  $('inv-texte').focus();
+}
+
+function enregistrerTexteInvitation(btn) {
+  var msg = $('inv-maj'), libelle = btn.textContent;
+  var texte = texteInvitationSaisi();
+  if (!texte) { msg.textContent = '⚠ le texte ne peut pas être vide'; msg.className = 'maj ko'; return; }
+  btn.disabled = true; btn.textContent = 'Enregistrement…';
+  api({ action: 'adminInviter', email: SESSION.email, token: SESSION.token,
+        apercu: 1, enregistrer: 1, texte: texte }, function (r) {
+    btn.disabled = false; btn.textContent = libelle;
+    if (!r || !r.ok) { msg.textContent = '⚠ ' + ((r && r.error) || 'échec'); msg.className = 'maj ko'; return; }
+    TEXTE_INVITATION = r.texte;
+    msg.textContent = '✓ texte enregistré — il servira à toutes les invitations';
+    msg.className = 'maj ok';
+  });
+}
+
 // Relire avant d'envoyer : l'aperçu passe par la même fonction serveur que
 // l'envoi, donc ce qui s'affiche est exactement ce que le client recevra.
 function apercuInvitation(btn) {
@@ -301,7 +349,8 @@ function apercuInvitation(btn) {
   btn.disabled = true; btn.textContent = 'Chargement…';
   api({ action: 'adminInviter', email: SESSION.email, token: SESSION.token, apercu: 1,
         destinataire: ($('inv-email').value || '').trim(),
-        prenom: ($('inv-prenom').value || '').trim() }, function (r) {
+        prenom: ($('inv-prenom').value || '').trim(),
+        texte: texteInvitationSaisi() }, function (r) {
     btn.disabled = false; btn.textContent = libelle;
     if (!r || !r.ok) {
       $('inv-maj').textContent = '⚠ ' + ((r && r.error) || 'aperçu impossible');
@@ -326,7 +375,8 @@ function envoyerInvitation() {
   btn.disabled = true; btn.textContent = 'Envoi…';
   msg.textContent = ''; msg.className = 'maj';
   api({ action: 'adminInviter', email: SESSION.email, token: SESSION.token,
-        destinataire: email, prenom: ($('inv-prenom').value || '').trim() }, function (r) {
+        destinataire: email, prenom: ($('inv-prenom').value || '').trim(),
+        texte: texteInvitationSaisi() }, function (r) {
     btn.disabled = false; btn.textContent = 'Envoyer l\u2019invitation';
     if (!r || !r.ok) {
       msg.textContent = '⚠ ' + ((r && r.error) || 'échec');
