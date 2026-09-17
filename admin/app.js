@@ -311,6 +311,9 @@ function basculerTexteInvitation() {
     TEXTE_INVITATION_ORIGINE = r.defaut || r.texte;
     $('inv-texte').value = r.texte;
     $('inv-texte').placeholder = '';
+    // Retoucher pour un envoi est ouvert à tous ; changer le texte du cabinet
+    // ne l'est qu'à l'administrateur du portail. Le serveur le vérifie aussi.
+    $('inv-texte-save').hidden = !r.peutEnregistrer;
     $('inv-texte').focus();
   });
 }
