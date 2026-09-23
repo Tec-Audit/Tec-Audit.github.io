@@ -47,6 +47,33 @@
   .btn:hover { background: var(--blue); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(14,65,148,.35); }
   .badge-soon { display: inline-block; background: var(--blue-light); color: var(--blue-dark); font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; padding: 8px 14px; border-radius: 4px; }
 
+  /* Questionnaire d'orientation : une question, deux réponses, puis une
+     confirmation de ce que le client s'apprête à remplir. */
+  .guide { background: white; border-radius: 8px; box-shadow: 0 6px 24px rgba(22,33,62,.12); padding: 32px 32px 30px; border-top: 4px solid var(--blue); }
+  .guide h3 { font-size: 22px; color: var(--blue-dark); margin-bottom: 6px; }
+  .guide .aide { font-size: 13.5px; color: var(--muted); margin-bottom: 22px; }
+  .reponses { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .reponse { font: inherit; text-align: left; cursor: pointer; background: #f7f9fc; border: 2px solid var(--border); border-radius: 8px; padding: 20px 20px 18px; display: flex; gap: 14px; align-items: flex-start; transition: border-color .15s, background .15s, transform .15s; }
+  .reponse:hover { border-color: var(--blue); background: var(--blue-light); transform: translateY(-1px); }
+  .reponse:focus-visible { outline: 3px solid rgba(14,65,148,.35); outline-offset: 2px; border-color: var(--blue); }
+  .reponse .ico { font-size: 28px; line-height: 1; flex-shrink: 0; }
+  .reponse strong { display: block; font-size: 15.5px; color: var(--blue-dark); margin-bottom: 5px; line-height: 1.35; }
+  .reponse span { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+  .confirmation h3 { margin-bottom: 4px; }
+  .confirmation .aide { margin-bottom: 16px; }
+  .confirmation ul { list-style: none; margin: 0 0 22px; }
+  .confirmation li { font-size: 13.5px; color: var(--text); padding: 5px 0 5px 24px; position: relative; line-height: 1.55; }
+  .confirmation li::before { content: '\2713'; position: absolute; left: 0; color: var(--blue); font-weight: 700; }
+  .confirmation .prep { font-size: 11.5px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .actions-guide { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .retour { font: inherit; font-size: 13px; background: none; border: 0; color: var(--blue); cursor: pointer; text-decoration: underline; padding: 0; }
+  .deja-client { margin-top: 20px; background: white; border-radius: 8px; padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; box-shadow: 0 2px 10px rgba(22,33,62,.06); }
+  .deja-client p { font-size: 13.5px; color: var(--muted); margin: 0; }
+  .deja-client p strong { color: var(--text); }
+  .btn-secondaire { display: inline-block; text-decoration: none; font-size: 12.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--blue-dark); border: 2px solid var(--blue-dark); border-radius: 4px; padding: 10px 18px; }
+  .btn-secondaire:hover { background: var(--blue-dark); color: white; }
+  @media (max-width: 640px) { .guide { padding: 24px 20px; } .guide h3 { font-size: 19px; } }
+
   .reassure { max-width: 980px; margin: 34px auto 0; display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; font-size: 12.5px; color: var(--muted); }
   .reassure span { display: flex; align-items: center; gap: 7px; }
 
@@ -97,40 +124,43 @@
 </section>
 
 <main class="content">
-  <div class="cards">
-    <div class="card">
-      <div class="card-icon">&#127970;</div>
-      <h3>Constitution de soci&eacute;t&eacute;</h3>
-      <p>Vous cr&eacute;ez votre soci&eacute;t&eacute; (SAS, SARL, SCI)&nbsp;? Transmettez-nous en une seule fois toutes les informations et pi&egrave;ces n&eacute;cessaires &agrave; la constitution de votre dossier.</p>
-      <ul>
-        <li>Environ 15 minutes</li>
-        <li>Reprise possible &agrave; tout moment</li>
-        <li>V&eacute;rification d&rsquo;&eacute;ligibilit&eacute; ACRE incluse</li>
-      </ul>
-      <a class="btn" href="/constitution/">Commencer ma d&eacute;marche</a>
+  <!-- Trois cartes côte à côte laissaient le client choisir d'après un intitulé
+       du cabinet (« constitution », « nouveau client ») : une société existante
+       a été déclarée en création. On pose désormais la question dans ses mots
+       à lui, puis on confirme ce qu'il s'apprête à remplir. -->
+  <section class="guide" id="guide" aria-labelledby="guide-titre">
+    <div id="question">
+      <h3 id="guide-titre">Où en est votre projet&nbsp;?</h3>
+      <p class="aide">Une question pour vous orienter vers le bon dossier.</p>
+      <div class="reponses">
+        <button type="button" class="reponse" onclick="choisir('creation')">
+          <span class="ico" aria-hidden="true">&#127959;&#65039;</span>
+          <span><strong>Vous souhaitez constituer une soci&eacute;t&eacute;</strong>
+            <span>Elle n&rsquo;existe pas encore&nbsp;: nous pr&eacute;parons sa cr&eacute;ation &mdash; statuts, formalit&eacute;s, immatriculation.</span></span>
+        </button>
+        <button type="button" class="reponse" onclick="choisir('reprise')">
+          <span class="ico" aria-hidden="true">&#127970;</span>
+          <span><strong>Vous avez d&eacute;j&agrave; une soci&eacute;t&eacute; et cherchez un nouvel expert-comptable</strong>
+            <span>Elle est immatricul&eacute;e&nbsp;: nous reprenons son dossier aupr&egrave;s de votre comptable actuel, dans les r&egrave;gles de la profession.</span></span>
+        </button>
+      </div>
     </div>
-    <div class="card">
-      <div class="card-icon">&#9997;&#65039;</div>
-      <h3>Mon espace client</h3>
-      <p>D&eacute;j&agrave; client du cabinet&nbsp;? Suivez vos d&eacute;marches en cours, retrouvez vos r&eacute;capitulatifs et corrigez vos coordonn&eacute;es en une minute.</p>
-      <ul>
-        <li>Suivi de vos d&eacute;marches</li>
-        <li>Tous vos dossiers en une fois</li>
-        <li>Coordonn&eacute;es &agrave; jour en un clic</li>
-      </ul>
-      <a class="btn" href="/mes-coordonnees/">Acc&eacute;der &agrave; mon espace</a>
+
+    <div class="confirmation" id="confirmation" hidden>
+      <h3 id="conf-titre" tabindex="-1"></h3>
+      <p class="aide" id="conf-texte"></p>
+      <p class="prep">&Agrave; avoir sous la main</p>
+      <ul id="conf-liste"></ul>
+      <div class="actions-guide">
+        <a class="btn" id="conf-lien" href="#">Commencer</a>
+        <button type="button" class="retour" onclick="revenir()">&larr; Ce n&rsquo;est pas ma situation</button>
+      </div>
     </div>
-    <div class="card">
-      <div class="card-icon">&#128188;</div>
-      <h3>Nouveau client du cabinet</h3>
-      <p>Vous rejoignez TEC AUDIT avec une soci&eacute;t&eacute; existante&nbsp;? Transmettez-nous votre dossier&nbsp;: nous organisons la reprise aupr&egrave;s de votre comptable actuel dans les r&egrave;gles de la profession.</p>
-      <ul>
-        <li>Pr&eacute;-remplissage par votre n&deg;&nbsp;SIREN</li>
-        <li>Reprise possible &agrave; tout moment</li>
-        <li>Proc&eacute;dure confraternelle prise en charge</li>
-      </ul>
-      <a class="btn" href="/nouveau-client/">Commencer ma d&eacute;marche</a>
-    </div>
+  </section>
+
+  <div class="deja-client">
+    <p><strong>D&eacute;j&agrave; client de TEC AUDIT&nbsp;?</strong> Suivez vos d&eacute;marches, retrouvez vos r&eacute;capitulatifs et mettez &agrave; jour vos coordonn&eacute;es.</p>
+    <a class="btn-secondaire" href="/mes-coordonnees/">Acc&eacute;der &agrave; mon espace</a>
   </div>
 
   <div class="reassure">
@@ -145,6 +175,57 @@
   Document et donn&eacute;es confidentiels destin&eacute;s &agrave; TEC AUDIT &mdash; 44, Rue du Louvre &mdash; 75001 Paris &mdash; 01 45 08 44 64<br>
   <a href="https://www.tec-audit.fr" target="_blank" rel="noopener">www.tec-audit.fr</a>
 </footer>
+
+<script>
+// Chaque parcours décrit ce qu'il est, dans les mots du client, et ce qu'il
+// faut avoir sous la main : c'est la relecture qui évite l'erreur d'aiguillage.
+var PARCOURS = {
+  creation: {
+    titre: 'Création de votre société',
+    texte: 'Vous allez nous transmettre les informations et les pièces nécessaires à la constitution de votre société. Comptez une quinzaine de minutes ; vous pouvez vous arrêter et reprendre plus tard.',
+    liste: ['La pièce d\u2019identité de chaque associé, recto et verso',
+            'Un justificatif de domicile pour l\u2019adresse du siège',
+            'La répartition du capital entre associés',
+            'Si vous êtes demandeur d\u2019emploi : votre avis de situation France Travail, pour l\u2019ACRE'],
+    lien: '/constitution/'
+  },
+  reprise: {
+    titre: 'Reprise de votre société existante',
+    texte: 'Vous allez nous transmettre le dossier de votre société. Votre numéro SIREN suffit à pré-remplir l\u2019essentiel ; nous nous chargeons ensuite des échanges avec votre comptable actuel.',
+    liste: ['Le numéro SIREN de la société',
+            'Les coordonnées de votre expert-comptable actuel, s\u2019il y en a un',
+            'La pièce d\u2019identité du dirigeant, recto et verso',
+            'Si vous les avez : Kbis, statuts à jour, derniers bilans'],
+    lien: '/nouveau-client/'
+  }
+};
+
+function choisir(cle) {
+  var p = PARCOURS[cle];
+  if (!p) return;
+  document.getElementById('conf-titre').textContent = p.titre;
+  document.getElementById('conf-texte').textContent = p.texte;
+  var ul = document.getElementById('conf-liste');
+  ul.innerHTML = '';
+  p.liste.forEach(function (t) { var li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+  document.getElementById('conf-lien').href = p.lien;
+  document.getElementById('question').hidden = true;
+  document.getElementById('confirmation').hidden = false;
+  document.getElementById('conf-titre').focus();
+  try { history.replaceState(null, '', '#' + cle); } catch (e) {}
+}
+
+function revenir() {
+  document.getElementById('confirmation').hidden = true;
+  document.getElementById('question').hidden = false;
+  var b = document.querySelector('.reponse');
+  if (b) b.focus();
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+}
+
+// Un lien direct (#creation, #reprise) ouvre la confirmation correspondante.
+(function () { var h = (location.hash || '').slice(1); if (PARCOURS[h]) choisir(h); })();
+</script>
 
 </body>
 </html>

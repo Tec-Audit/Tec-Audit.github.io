@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Nouveau Client — TEC AUDIT</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="/pieces.js?v=20260923a"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Spectral:wght@400;500;600&display=swap');
   :root {
@@ -31,6 +32,9 @@
   .login-box img { height:52px; display:block; margin:0 auto 16px; }
   .login-title { font-size:20px; font-weight:700; color:var(--blue-dark); text-align:center; margin-bottom:6px; }
   .login-sub { font-size:12.5px; color:var(--muted); text-align:center; margin-bottom:26px; }
+  .login-parcours { font-size:12.5px; line-height:1.55; background:#f0f4fa; border:1px solid #c5d5ea; border-radius:4px; padding:9px 12px; margin:0 0 16px; text-align:left; color:#333; }
+  .login-parcours strong { color:#0B316F; }
+  .login-parcours a { color:#0E4194; font-weight:600; }
   .login-field { margin-bottom:15px; }
   .login-field label { display:block; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--blue-dark); margin-bottom:5px; }
   .login-field input { width:100%; padding:10px 14px; border:1.5px solid var(--border); border-radius:5px; font-size:14px; font-family:inherit; outline:none; }
@@ -172,6 +176,7 @@
   <div class="login-box">
     <img src="/logo.png" alt="TEC AUDIT">
     <div class="login-title">Accès sécurisé</div>
+    <div class="login-parcours"><strong>Reprise d’une société existante.</strong> Votre société n’est pas encore créée ? <a href="/constitution/">Changer de formulaire&nbsp;&rarr;</a></div>
     <div class="login-sub">Saisissez votre email — vous recevrez un code de connexion, sans mot de passe.</div>
     <div class="login-field">
       <label for="login-email">Email</label>
@@ -805,7 +810,10 @@ function callScript(payload, callback) {
   fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) })
     .then(function (r) { return r.json(); })
     .then(function (res) {
-      if (res && !res.ok && /Session expirée/.test(res.error || '')) { sessionExpiree(); return; }
+      if (res && !res.ok && /Session expirée/.test(res.error || '')) {
+        if (window.TecPieces) TecPieces.fermer();
+        sessionExpiree(); return;
+      }
       callback(res);
     })
     .catch(function (e) { callback({ ok: false, error: 'Erreur réseau : ' + e.message }); });
@@ -1052,13 +1060,8 @@ function onAutreChange() {
   document.getElementById('m-autre-wrap').style.display = document.getElementById('m-autre').checked ? '' : 'none';
 }
 
-function updateFileLabel(pid) {
-  var input = document.getElementById('file-' + pid);
-  var names = [];
-  for (var i = 0; i < input.files.length; i++) names.push(input.files[i].name);
-  document.getElementById(pid + '-names').textContent = names.length ? '✓ ' + names.join(', ') : '';
-  document.getElementById(pid + '-text').textContent = names.length ? 'Modifier (' + names.length + ')' : 'Choisir les fichiers';
-}
+// updateFileLabel() est fournie par /pieces.js : sélection cumulative, retrait
+// d'un fichier, poids affiché.
 
 // ══════════════════════════════════════════════════════════════
 //  Sauvegarde / reprise (clé : email + parcours)
@@ -1317,61 +1320,34 @@ function validerFormulaire() {
   add('Mission souhaitée', missionsChoisies().join(' · '));
   add('Rythme', v('m-periodicite')); add('CA annuel approx.', v('m-ca'));
 
-  var lectures = [], totalSize = 0;
-  function lireFichier(file, categorie) {
-    return new Promise(function (resolve, reject) {
-      var r = new FileReader();
-      r.onload = function () { resolve({ categorie: categorie, nom: file.name, mimeType: file.type || 'application/octet-stream', data: String(r.result).split(',')[1] }); };
-      r.onerror = function () { reject(new Error('Lecture impossible : ' + file.name)); };
-      r.readAsDataURL(file);
-    });
-  }
-  toutesPieces().forEach(function (p) {
-    var input = document.getElementById('file-' + p.id);
-    if (input && input.files) for (var k = 0; k < input.files.length; k++) {
-      totalSize += input.files[k].size;
-      lectures.push(lireFichier(input.files[k], typeof p.tag === 'function' ? p.tag() : (p.tag || p.label)));
-    }
-  });
-  if (totalSize > 20 * 1024 * 1024) {
-    alert('Le total des pièces dépasse 20 Mo. Retirez les plus lourdes — vous pourrez nous les envoyer par email — puis réessayez.');
-    resetBtn(); return;
-  }
+  // ── Envoi : allègement des photos, contrôle du volume, suivi visible ──
+  var pieces = TecPieces.piecesDe(toutesPieces().map(function (p) {
+    return { id: 'file-' + p.id, categorie: typeof p.tag === 'function' ? p.tag() : (p.tag || p.label) };
+  }));
 
-  var pdfPromise = new Promise(function (resolve) {
-    try {
-      var blob = generateRecapPDF();
-      var r = new FileReader();
-      r.onload = function () { resolve(String(r.result).split(',')[1]); };
-      r.onerror = function () { resolve(null); };
-      r.readAsDataURL(blob);
-    } catch (e) { resolve(null); }
-  });
-
-  Promise.all([Promise.all(lectures), pdfPromise]).then(function (results) {
-    callScript({
-      action: 'submit', email: SESSION.email, token: SESSION.token, parcours: PARCOURS,
-      sujet: 'Nouveau client / Reprise — ' + (v('denomination') !== '—' ? v('denomination') : SESSION.email) +
-        (rv('compta-avant') === 'ec' ? ' [lettre confraternelle à émettre]' : ''),
-      denomination: v('denomination') !== '—' ? v('denomination') : '',
-      forme: v('forme') !== '—' ? v('forme') : '',
-      contactEmail: v('d-email') !== '—' ? v('d-email') : SESSION.email,
-      champs: champs, fichiers: results[0], pdf: results[1],
-      dossier: collecterDossier()
-    }, function (res) {
-      if (res && res.ok) {
-        if (CABINET) document.getElementById('confirm-msg').innerHTML = '\u2713 Dossier transmis au nom de <strong>' + escCab(SESSION.email) + '</strong>. Le client re\u00e7oit un email avec l\u2019acc\u00e8s \u00e0 son espace pour suivre l\u2019avancement et d\u00e9poser ses pi\u00e8ces.';
-        document.getElementById('confirm-msg').style.display = 'block';
-        document.getElementById('confirm-msg').scrollIntoView({ behavior: 'smooth' });
-        btn.textContent = '✓ Envoyé';
-      } else {
-        resetBtn();
-        alert('Erreur lors de l\'envoi : ' + ((res && res.error) || 'erreur serveur') + '\nRéessayez ou contactez TEC AUDIT au 01 45 08 44 64.');
-      }
-    });
-  }).catch(function (err) {
-    resetBtn();
-    alert('Erreur lors de la préparation de l\'envoi : ' + (err ? err.message : ''));
+  TecPieces.transmettre({
+    pieces: pieces,
+    recapPdf: generateRecapPDF,
+    envoyer: function (fichiers, pdfB64, rappel) {
+      callScript({
+        action: 'submit', email: SESSION.email, token: SESSION.token, parcours: PARCOURS,
+        sujet: 'Nouveau client / Reprise — ' + (v('denomination') !== '—' ? v('denomination') : SESSION.email) +
+          (rv('compta-avant') === 'ec' ? ' [lettre confraternelle à émettre]' : ''),
+        denomination: v('denomination') !== '—' ? v('denomination') : '',
+        forme: v('forme') !== '—' ? v('forme') : '',
+        contactEmail: v('d-email') !== '—' ? v('d-email') : SESSION.email,
+        champs: champs, fichiers: fichiers, pdf: pdfB64,
+        dossier: collecterDossier()
+      }, rappel);
+    },
+    reussite: function () {
+      if (CABINET) document.getElementById('confirm-msg').innerHTML = '\u2713 Dossier transmis au nom de <strong>' + escCab(SESSION.email) + '</strong>. Le client re\u00e7oit un email avec l\u2019acc\u00e8s \u00e0 son espace pour suivre l\u2019avancement et d\u00e9poser ses pi\u00e8ces.';
+      document.getElementById('confirm-msg').style.display = 'block';
+      document.getElementById('confirm-msg').scrollIntoView({ behavior: 'smooth' });
+      btn.textContent = '✓ Envoyé';
+    },
+    echec: resetBtn,
+    reessayer: validerFormulaire
   });
 }
 </script>

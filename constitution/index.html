@@ -292,6 +292,9 @@
   .login-logo img { height:52px;width:auto; }
   .login-title { font-size:20px;font-weight:700;color:var(--navy);text-align:center;margin-bottom:6px; }
   .login-sub { font-size:13px;color:#777;text-align:center;margin-bottom:28px; }
+  .login-parcours { font-size:12.5px; line-height:1.55; background:#f0f4fa; border:1px solid #c5d5ea; border-radius:4px; padding:9px 12px; margin:0 0 16px; text-align:left; color:#333; }
+  .login-parcours strong { color:#0B316F; }
+  .login-parcours a { color:#0E4194; font-weight:600; }
   .login-field { margin-bottom:16px; }
   .login-field label { display:block;font-size:12px;font-weight:700;text-transform:uppercase;
     letter-spacing:.6px;color:var(--navy);margin-bottom:6px; }
@@ -337,6 +340,7 @@
   .header-center h1, .login-title { font-weight: 600; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="/pieces.js?v=20260923a"></script>
 <style>
 #cabinet-bar{position:sticky;top:0;z-index:60;background:#fff8e1;border-bottom:2px solid #f9a825;padding:8px 16px;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;font-size:13.5px;font-family:inherit;color:#5a4300}
 #cabinet-bar label{display:inline-flex;align-items:center;gap:6px}
@@ -374,6 +378,7 @@
            onerror="this.style.display='none'">
     </div>
     <div class="login-title">Accès sécurisé</div>
+    <div class="login-parcours"><strong>Création d’une nouvelle société.</strong> Votre société existe déjà et vous changez d’expert-comptable ? <a href="/nouveau-client/">Changer de formulaire&nbsp;&rarr;</a></div>
     <div class="login-sub">Saisissez votre email — vous recevrez un code de connexion, sans mot de passe.</div>
     <div class="login-field">
       <label>Email</label>
@@ -2283,20 +2288,8 @@ function buildSummary() {
 }
 
 
-function updateFileLabel(pid) {
-  var input = document.getElementById('file-' + pid);
-  var namesDiv = document.getElementById(pid + '-names');
-  var textSpan = document.getElementById(pid + '-text');
-  if (!input.files || !input.files.length) return;
-  var count = input.files.length;
-  textSpan.textContent = count + ' fichier' + (count > 1 ? 's' : '') + ' sélectionné' + (count > 1 ? 's' : '');
-  namesDiv.innerHTML = '';
-  for (var i = 0; i < input.files.length; i++) {
-    var sp = document.createElement('span');
-    sp.textContent = '✓ ' + input.files[i].name;
-    namesDiv.appendChild(sp);
-  }
-}
+// updateFileLabel() est fournie par /pieces.js : sélection cumulative, retrait
+// d'un fichier, poids affiché.
 
 // Pièces attendues, calculées depuis les personnes saisies. Chaque entrée :
 // { id, tag, label } — tag = « clé|Personne », l'étiquette que le backend
@@ -2343,7 +2336,7 @@ function buildPiecesPersonnes() {
       var exigee = String(p.tag || '').indexOf('cni') === 0;
       return '<li class="piece-item piece-upload"><div class="piece-label"><span class="piece-icon">&#128196;</span>' +
         '<div><strong>' + p.label + (exigee ? '<span class="oblig" title="Champ obligatoire">*</span>' : '') +
-        '</strong><div class="piece-hint">Un ou plusieurs fichiers</div></div></div>' +
+        '</strong><div class="piece-hint">' + (exigee ? 'Recto et verso : ajoutez une photo, puis l\u2019autre' : 'Un ou plusieurs fichiers') + '</div></div></div>' +
         '<label class="upload-btn" for="file-' + p.id + '"><span id="' + p.id + '-text">Choisir les fichiers</span>' +
         '<input type="file" id="file-' + p.id + '" multiple accept="image/*,.pdf" onchange="updateFileLabel(\'' + p.id + '\')"></label>' +
         '<div class="file-names" id="' + p.id + '-names"></div></li>';
@@ -2701,86 +2694,36 @@ function validerFormulaire() {
     return SESSION.email || '';
   })();
 
-  // ── Fichiers → base64 ──
-  var fileInputs = listeFichiers().map(function (p) { return { id: 'file-' + p.id, label: p.tag }; });
+  // ── Envoi : allègement des photos, contrôle du volume, suivi visible ──
+  var pieces = TecPieces.piecesDe(listeFichiers().map(function (p) { return { id: 'file-' + p.id, categorie: p.tag }; }));
 
-  var MAX_TOTAL = 20 * 1024 * 1024; // 20 Mo au total
-  var totalSize = 0;
-  var lectures = [];
-
-  function lireFichier(file, categorie) {
-    return new Promise(function(resolve, reject) {
-      var r = new FileReader();
-      r.onload = function() { resolve({
-        categorie: categorie,
-        nom: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        data: String(r.result).split(',')[1]
-      }); };
-      r.onerror = function() { reject(new Error('Lecture impossible : ' + file.name)); };
-      r.readAsDataURL(file);
-    });
-  }
-
-  fileInputs.forEach(function(f) {
-    var input = document.getElementById(f.id);
-    if (input && input.files) {
-      for (var k = 0; k < input.files.length; k++) {
-        totalSize += input.files[k].size;
-        lectures.push(lireFichier(input.files[k], f.label));
-      }
-    }
-  });
-
-  if (totalSize > MAX_TOTAL) {
-    alert('Le total des pièces jointes dépasse 20 Mo. Merci de compresser vos fichiers (ou de les envoyer séparément par email au cabinet) puis de réessayer.');
-    resetBtn();
-    return;
-  }
-
-  // ── PDF récapitulatif → base64 ──
-  var pdfPromise = Promise.resolve(null);
-  try {
-    var pdfBlob = generateRecapPDF();
-    pdfPromise = new Promise(function(resolve) {
-      var r = new FileReader();
-      r.onload = function() { resolve(String(r.result).split(',')[1]); };
-      r.onerror = function() { resolve(null); };
-      r.readAsDataURL(pdfBlob);
-    });
-  } catch(e) { console.warn('PDF generation failed:', e); }
-
-  Promise.all([Promise.all(lectures), pdfPromise]).then(function(results) {
-    var fichiers = results[0];
-    var pdfB64 = results[1];
-
-    callScript({
-      action: 'submit',
-      email: SESSION.email,
-      token: SESSION.token,
-      denomination: v('denomination') !== '—' ? v('denomination') : '',
-      forme: v('forme') !== '—' ? v('forme') : '',
-      contactEmail: contactEmail,
-      champs: champs,
-      fichiers: fichiers,
-      pdf: pdfB64,
-      acreDemande: acreDemande,
-      acreDetail: acreDetails.join(' | '),
-      dossier: collecterDossier()
-    }, function(res) {
-      if (res && res.ok) {
-        if (CABINET) document.getElementById('confirm-msg').innerHTML = '\u2713 Dossier transmis au nom de <strong>' + escCab(SESSION.email) + '</strong>. Le client re\u00e7oit un email avec l\u2019acc\u00e8s \u00e0 son espace pour suivre l\u2019avancement et d\u00e9poser ses pi\u00e8ces.';
-        document.getElementById('confirm-msg').style.display = 'block';
-        document.getElementById('confirm-msg').scrollIntoView({ behavior: 'smooth' });
-        btn.textContent = '✓ Envoyé';
-      } else {
-        resetBtn();
-        alert('Erreur lors de l’envoi : ' + ((res && res.error) || 'erreur serveur') + '\nVeuillez réessayer ou contacter TEC AUDIT au 01 45 08 44 64.');
-      }
-    });
-  }).catch(function(err) {
-    resetBtn();
-    alert('Erreur lors de la préparation de l’envoi : ' + (err ? err.message : '') + '\nVeuillez réessayer ou contacter TEC AUDIT au 01 45 08 44 64.');
+  TecPieces.transmettre({
+    pieces: pieces,
+    recapPdf: generateRecapPDF,
+    envoyer: function (fichiers, pdfB64, rappel) {
+      callScript({
+        action: 'submit',
+        email: SESSION.email,
+        token: SESSION.token,
+        denomination: v('denomination') !== '—' ? v('denomination') : '',
+        forme: v('forme') !== '—' ? v('forme') : '',
+        contactEmail: contactEmail,
+        champs: champs,
+        fichiers: fichiers,
+        pdf: pdfB64,
+        acreDemande: acreDemande,
+        acreDetail: acreDetails.join(' | '),
+        dossier: collecterDossier()
+      }, rappel);
+    },
+    reussite: function () {
+      if (CABINET) document.getElementById('confirm-msg').innerHTML = '\u2713 Dossier transmis au nom de <strong>' + escCab(SESSION.email) + '</strong>. Le client re\u00e7oit un email avec l\u2019acc\u00e8s \u00e0 son espace pour suivre l\u2019avancement et d\u00e9poser ses pi\u00e8ces.';
+      document.getElementById('confirm-msg').style.display = 'block';
+      document.getElementById('confirm-msg').scrollIntoView({ behavior: 'smooth' });
+      btn.textContent = '✓ Envoyé';
+    },
+    echec: resetBtn,
+    reessayer: validerFormulaire
   });
 }
 
@@ -2949,7 +2892,10 @@ function callScript(payload, callback) {
   })
   .then(function(r) { return r.json(); })
   .then(function (res) {
-    if (res && !res.ok && /Session expirée/.test(res.error || '')) { sessionExpiree(); return; }
+    if (res && !res.ok && /Session expirée/.test(res.error || '')) {
+      if (window.TecPieces) TecPieces.fermer();
+      sessionExpiree(); return;
+    }
     callback(res);
   })
   .catch(function(e) {
