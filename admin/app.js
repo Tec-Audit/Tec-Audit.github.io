@@ -280,19 +280,43 @@ function ouvrirApp() {
 }
 
 // ── Saisie d'un dossier pour un client : ouvre le formulaire en mode cabinet ──
-function basculerSaisieCabinet() {
-  var p = $('saisie-cabinet');
-  p.style.display = p.style.display === 'none' || !p.style.display ? 'flex' : 'none';
-  if (p.style.display === 'flex') $('saisie-email').focus();
+// Les panneaux de la barre : un seul ouvert à la fois, le bouton qui l'a ouvert
+// reste enfoncé, et « Fermer », Échap ou un second clic sur le bouton le referment.
+// Deux panneaux empilés sans repère, c'était un écran dont on ne savait pas sortir.
+var PANNEAUX = {
+  'invitation':     { bouton: 'btn-inviter', focus: 'inv-email' },
+  'saisie-cabinet': { bouton: 'btn-saisie',  focus: 'saisie-email' }
+};
+
+function panneauOuvert(id) { return !!$(id) && $(id).style.display === 'flex'; }
+
+function fermerPanneau(id) {
+  var p = $(id), def = PANNEAUX[id];
+  if (!p || !def) return;
+  var focusDedans = p.contains(document.activeElement);
+  p.style.display = 'none';
+  var b = $(def.bouton);
+  if (b) { b.classList.remove('actif'); b.setAttribute('aria-expanded', 'false'); }
+  if (id === 'invitation' && $('inv-maj')) { $('inv-maj').textContent = ''; $('inv-maj').className = 'maj'; }
+  if (focusDedans && b) b.focus();   // le focus ne se perd pas dans un panneau masqué
 }
+
+function basculerPanneau(id) {
+  var ouvrir = !panneauOuvert(id);
+  Object.keys(PANNEAUX).forEach(fermerPanneau);
+  if (!ouvrir) return;
+  $(id).style.display = 'flex';
+  var b = $(PANNEAUX[id].bouton);
+  if (b) { b.classList.add('actif'); b.setAttribute('aria-expanded', 'true'); }
+  var f = $(PANNEAUX[id].focus);
+  if (f) f.focus();
+}
+
+function basculerSaisieCabinet() { basculerPanneau('saisie-cabinet'); }
 // Invitation : le cabinet n'a que l'adresse à saisir, le message est le même
 // pour tous. Les réponses reviennent à celui qui l'a envoyée, pas à une boîte
 // générale — un client qui répond veut parler à quelqu'un.
-function basculerInvitation() {
-  var p = $('invitation');
-  p.style.display = p.style.display === 'none' || !p.style.display ? 'flex' : 'none';
-  if (p.style.display === 'flex') $('inv-email').focus();
-}
+function basculerInvitation() { basculerPanneau('invitation'); }
 
 // Le corps du message se modifie depuis l'espace interne. Tant qu'on ne demande
 // pas de l'enregistrer, la retouche ne vaut que pour l'envoi en cours.
@@ -2324,7 +2348,10 @@ function reponseLettre(ligne, objection, btn) {
 }
 
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape' && $('apercu-modale') && $('apercu-modale').style.display === 'flex') fermerApercu();
+  if (e.key !== 'Escape') return;
+  // L'aperçu est au-dessus du panneau d'invitation : Échap ne ferme que lui.
+  if ($('apercu-modale') && $('apercu-modale').style.display === 'flex') { fermerApercu(); return; }
+  Object.keys(PANNEAUX).forEach(function (id) { if (panneauOuvert(id)) fermerPanneau(id); });
 });
 
 function exporterCSV() {

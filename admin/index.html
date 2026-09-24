@@ -130,6 +130,13 @@
   .filtre select { padding:7px 9px; border:1.5px solid var(--border); border-radius:5px; font-family:inherit; font-size:12.5px; background:white; outline:none; max-width:190px; }
   .btn-ghost { padding:8px 14px; background:white; border:1.5px solid var(--blue); color:var(--blue-dark); border-radius:5px; font-family:inherit; font-size:12px; font-weight:600; cursor:pointer; }
   .btn-ghost:hover { background:var(--blue-light); }
+  /* Bouton dont le panneau est ouvert : il reste enfoncé, pour qu'on sache
+     d'où vient le panneau et qu'on puisse le refermer du même geste. */
+  .btn-ghost.actif { background:var(--blue-light); border-color:var(--blue-dark); box-shadow:inset 0 -3px 0 var(--blue-dark); }
+  .panneau-fermer { margin-left:auto; background:none; border:0; font:inherit; font-size:12.5px; font-weight:600; color:#5a6070; cursor:pointer; padding:5px 8px; border-radius:4px; white-space:nowrap; }
+  #invitation .maj:empty { display:none; }
+  .panneau-texte { flex:1 1 320px; min-width:240px; line-height:1.5; }
+  .panneau-fermer:hover, .panneau-fermer:focus-visible { color:var(--blue-dark); background:rgba(14,65,148,.08); }
 
   .tabs { display:flex; gap:4px; padding:0 24px; background:white; border-bottom:1px solid var(--border); }
   .tab { padding:11px 20px; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer;
@@ -395,16 +402,17 @@
     <input type="search" id="q" aria-label="Rechercher un dossier ou un contact" placeholder="Rechercher ( / ) : soci&eacute;t&eacute;, dirigeant, email, SIRET&hellip;">
     <div id="zone-filtres" class="zone-filtres"></div>
     <button class="btn-ghost" onclick="exporterCSV()">Exporter CSV</button>
-    <button class="btn-ghost" id="btn-saisie" onclick="basculerSaisieCabinet()" title="Remplir un formulaire d'entr&eacute;e &agrave; la place du client">&#65291; Saisir un dossier pour un client</button>
-    <button class="btn-ghost" id="btn-inviter" onclick="basculerInvitation()" title="Envoyer au client le lien de son espace en ligne">&#9993; Inviter un client</button>
+    <button class="btn-ghost" id="btn-saisie" aria-expanded="false" aria-controls="saisie-cabinet" onclick="basculerSaisieCabinet()" title="Remplir un formulaire d'entr&eacute;e &agrave; la place du client">&#65291; Saisir un dossier pour un client</button>
+    <button class="btn-ghost" id="btn-inviter" aria-expanded="false" aria-controls="invitation" onclick="basculerInvitation()" title="Envoyer au client le lien de son espace en ligne">&#9993; Inviter un client</button>
   </div>
   <div id="invitation" style="display:none;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 20px;background:#eef4fd;border-bottom:1px solid #c5d5ea;font-size:13.5px;">
-    <span>Le client re&ccedil;oit le message de bienvenue avec le lien de son espace. Les r&eacute;ponses vous reviennent.</span>
+    <span class="panneau-texte">Le client re&ccedil;oit le message de bienvenue avec le lien de son espace. Les r&eacute;ponses vous reviennent.</span>
     <input type="email" id="inv-email" placeholder="email du client" style="padding:6px 9px;border:1px solid #ccc;border-radius:3px;min-width:240px;font:inherit;">
     <input type="text" id="inv-prenom" placeholder="pr&eacute;nom (facultatif)" style="padding:6px 9px;border:1px solid #ccc;border-radius:3px;min-width:150px;font:inherit;">
     <button class="btn-ghost" id="inv-texte-btn" onclick="basculerTexteInvitation()">&#9998; Texte</button>
     <button class="btn-ghost" id="inv-apercu" onclick="apercuInvitation(this)">&#128065; Aper&ccedil;u</button>
     <button class="btn-ghost" id="inv-btn" onclick="envoyerInvitation()">Envoyer l&#8217;invitation</button>
+    <button type="button" class="panneau-fermer" onclick="fermerPanneau('invitation')" aria-label="Fermer ce panneau">&#10005; Fermer</button>
     <span class="maj" id="inv-maj" role="status" aria-live="polite"></span>
     <div id="inv-texte-zone" style="display:none;width:100%;">
       <textarea id="inv-texte" rows="7" spellcheck="true" style="width:100%;padding:9px 11px;border:1px solid #c5d5ea;border-radius:3px;font:inherit;line-height:1.55;resize:vertical;"></textarea>
@@ -416,10 +424,11 @@
     </div>
   </div>
   <div id="saisie-cabinet" style="display:none;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 20px;background:#fff8e1;border-bottom:1px solid #f0d78a;font-size:13.5px;">
-    <span>Le formulaire s&#8217;ouvre dans un nouvel onglet, &agrave; votre nom ; le dossier est enregistr&eacute; au nom du client, qui re&ccedil;oit l&#8217;acc&egrave;s &agrave; son espace &agrave; la transmission.</span>
+    <span class="panneau-texte">Le formulaire s&#8217;ouvre dans un nouvel onglet, &agrave; votre nom ; le dossier est enregistr&eacute; au nom du client, qui re&ccedil;oit l&#8217;acc&egrave;s &agrave; son espace &agrave; la transmission.</span>
     <input type="email" id="saisie-email" placeholder="email du client" style="padding:6px 9px;border:1px solid #ccc;border-radius:3px;min-width:240px;font:inherit;">
     <button class="btn-ghost" onclick="ouvrirSaisieCabinet('constitution')">Cr&eacute;ation de soci&eacute;t&eacute;</button>
     <button class="btn-ghost" onclick="ouvrirSaisieCabinet('nouveau-client')">Reprise d&#8217;un dossier</button>
+    <button type="button" class="panneau-fermer" onclick="fermerPanneau('saisie-cabinet')" aria-label="Fermer ce panneau">&#10005; Fermer</button>
   </div>
 
   <div class="apercu">
@@ -453,6 +462,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260917b"></script>
+<script src="app.js?v=20260924a"></script>
 </body>
 </html>
