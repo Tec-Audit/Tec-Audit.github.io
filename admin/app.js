@@ -634,39 +634,46 @@ function rendreDonut(L) {
     formes[f] = (formes[f] || 0) + 1;
   });
   var cles = Object.keys(formes).sort(function (a, b) { return formes[b] - formes[a]; });
-  // Top 7 + « Autres » regroupés pour garder l'anneau lisible
+  // Top 7 + « Autres » regroupés pour garder l'anneau lisible. « Autres » n'est
+  // pas une catégorie : il porte la liste de celles qu'il rassemble, et c'est
+  // elle que le clic sélectionne — filtrer sur le mot « Autres » ne trouvait rien.
   var top = cles.slice(0, 7);
-  var autres = cles.slice(7).reduce(function (s, k) { return s + formes[k]; }, 0);
+  var membres = cles.slice(7);
+  var autres = membres.reduce(function (s, k) { return s + formes[k]; }, 0);
   var parts = top.map(function (f, i) { return { nom: f, n: formes[f], c: COULEURS[i] }; });
-  if (autres > 0) parts.push({ nom: 'Autres', n: autres, c: '#B8C0CE' });
+  if (autres > 0) parts.push({ nom: 'Autres', n: autres, c: '#B8C0CE', membres: membres,
+    detail: membres.map(function (k) { return k + ' (' + formes[k] + ')'; }).join(', ') });
+  PARTS_DONUT = parts;
 
   var total = L.length || 1;
   var actifs = parActivite ? [] : filtresActifs('forme');
+  var partActive = function (p) {
+    return p.membres ? p.membres.every(function (m) { return actifs.indexOf(m) > -1; }) : actifs.indexOf(p.nom) > -1;
+  };
   var R = 54, EP = 16, C = 70;
   var circ = 2 * Math.PI * R;
   var offset = 0;
-  var segs = parts.map(function (p) {
+  var segs = parts.map(function (p, ip) {
     var frac = p.n / total;
-    var estActif = actifs.indexOf(p.nom) > -1;
+    var estActif = partActive(p);
     var seg = '<circle r="' + R + '" cx="' + C + '" cy="' + C + '" fill="none"' +
       ' stroke="' + p.c + '" stroke-width="' + (estActif ? EP + 5 : EP) + '"' +
       ' stroke-dasharray="' + (frac * circ - 2) + ' ' + (circ - frac * circ + 2) + '"' +
       ' stroke-dashoffset="' + (-offset * circ) + '"' +
       (parActivite ? ' style="transition:stroke-width .15s ease;"' :
-        ' style="cursor:pointer;transition:stroke-width .15s ease;" onclick="filtrerForme(\'' +
-        escJs(p.nom) + '\')"') + '>' +
-      '<title>' + esc(p.nom) + ' : ' + p.n + '</title></circle>';
+        ' style="cursor:pointer;transition:stroke-width .15s ease;" onclick="filtrerPart(' + ip + ')"') + '>' +
+      '<title>' + esc(p.nom) + ' : ' + p.n + (p.detail ? ' — ' + esc(p.detail) : '') + '</title></circle>';
     offset += frac;
     return seg;
   }).join('');
 
-  var legende = parts.map(function (p) {
-    var estActif = actifs.indexOf(p.nom) > -1;
+  var legende = parts.map(function (p, ip) {
+    var estActif = partActive(p);
     return '<button class="leg' + (estActif ? ' actif' : '') + '" aria-pressed="' + (estActif ? 'true' : 'false') +
       '"' + (parActivite ? ' disabled style="cursor:default;"' :
-        ' onclick="filtrerForme(\'' + escJs(p.nom) + '\')"') + '>' +
+        ' onclick="filtrerPart(' + ip + ')"') + '>' +
       '<i style="background:' + p.c + '"></i>' +
-      '<span class="leg-nom" title="' + esc(p.nom) + '">' + esc(p.nom) + '</span>' +
+      '<span class="leg-nom" title="' + esc(p.detail || p.nom) + '">' + esc(p.nom) + '</span>' +
       '<b>' + p.n + '</b><span class="leg-pct">' + Math.round(p.n / total * 100) + '%</span></button>';
   }).join('');
 
@@ -685,7 +692,88 @@ function rendreDonut(L) {
         '<text x="70" y="84" text-anchor="middle" style="font-size:9px;fill:#5a6070;letter-spacing:.5px;font-family:Poppins,sans-serif;">DOSSIERS</text>' +
       '</svg>' +
       '<div class="legende">' + legende + '</div>' +
-    '</div>';
+    '</div>' + ligneIncomplets();
+}
+
+// Forme ou activité manquante : ce qui s'affiche « Non renseignée » dans l'anneau.
+// Le registre public complète tout dossier doté d'un SIREN ; les autres sont
+// nommés, parce qu'eux seuls demandent une intervention.
+function incompletude() {
+  var r = { total: 0, registre: 0, sansSiren: [] };
+  (DATA.lignes || []).forEach(function (l) {
+    var manque = !String(val(l, 'Forme')).trim() || !String(val(l, 'Activité')).trim();
+    if (!manque) return;
+    r.total++;
+    var siren = String(val(l, 'SIRET')).replace(/\D/g, '').slice(0, 9);
+    if (siren.length === 9 || (String(val(l, 'Code NAF')).trim() && String(val(l, 'Forme')).trim())) r.registre++;
+    else r.sansSiren.push(val(l, 'Dénomination') || val(l, 'Code dossier'));
+  });
+  return r;
+}
+
+// Le compte rendu du dernier passage au registre : l'anneau se redessine à chaque
+// filtre et au rechargement de la liste, le compte rendu doit y survivre.
+var RAPPORT_REGISTRE = null;
+
+function ligneIncomplets() {
+  if (SESSION.role !== 'associe') return '';
+  var r = incompletude();
+  var rapport = RAPPORT_REGISTRE
+    ? '<span class="maj ' + RAPPORT_REGISTRE.cls + '" role="status" aria-live="polite">' + RAPPORT_REGISTRE.html + '</span>'
+    : '<span class="maj" id="dash-incomplets-maj" role="status" aria-live="polite"></span>';
+  if (!r.total) return RAPPORT_REGISTRE ? '<div class="dash-incomplets">' + rapport + '</div>' : '';
+  return '<div class="dash-incomplets" id="dash-incomplets">' +
+    '<span><b>' + r.total + '</b> dossier' + (r.total > 1 ? 's' : '') + ' sans forme ou sans activité' +
+      (r.registre ? ' · <b>' + r.registre + '</b> complétable' + (r.registre > 1 ? 's' : '') + ' depuis le registre public' : '') +
+      (r.sansSiren.length ? ' · <span title="' + esc(r.sansSiren.join(', ')) + '"><b>' + r.sansSiren.length +
+        '</b> sans SIREN, à compléter à la main</span>' : '') + '</span>' +
+    (r.registre ? '<button class="btn-ghost" onclick="completerRegistres(this)">Compléter depuis le registre</button>' : '') +
+    rapport + '</div>';
+}
+
+function completerRegistres(btn) {
+  var msg = $('dash-incomplets-maj'), libelle = btn.textContent, t0 = Date.now();
+  btn.disabled = true;
+  var tic = setInterval(function () { btn.textContent = 'Consultation du registre… ' + Math.round((Date.now() - t0) / 1000) + ' s'; }, 1000);
+  btn.textContent = 'Consultation du registre…';
+  api({ action: 'adminCompleterRegistres', email: SESSION.email, token: SESSION.token }, function (res) {
+    clearInterval(tic);
+    btn.disabled = false; btn.textContent = libelle;
+    if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
+    var r = res.rapport, faits = [];
+    if (r.formes) faits.push(r.formes + ' forme' + (r.formes > 1 ? 's' : ''));
+    if (r.activites) faits.push(r.activites + ' activité' + (r.activites > 1 ? 's' : ''));
+    if (r.codesNaf) faits.push(r.codesNaf + ' code' + (r.codesNaf > 1 ? 's' : '') + ' NAF');
+    var reste = [];
+    if (r.sansSiren.length) reste.push('sans SIREN : ' + r.sansSiren.join(', '));
+    if (r.introuvables.length) reste.push('absents du registre : ' + r.introuvables.join(', '));
+    if (r.inconnues.length) reste.push('forme rare, laissée vide : ' + r.inconnues.join(', '));
+    if (r.restants) reste.push(r.restants + ' non consultés faute de temps — relancez');
+    RAPPORT_REGISTRE = {
+      cls: faits.length ? 'ok' : '',
+      html: (faits.length ? '✓ Complété depuis le registre : ' + esc(faits.join(', ')) + '.' : 'Rien de plus à tirer du registre.') +
+        (reste.length ? '<br>Reste à la main — ' + esc(reste.join(' · ')) + '.' : '') +
+        (r.cessees.length ? '<br>⚠ Radiées au registre : ' + esc(r.cessees.join(', ')) + ' — le périmètre n\u2019a pas été modifié.' : '')
+    };
+    chargerDossiers();                     // l'anneau se redessine avec les valeurs complétées
+  });
+}
+
+// Clic sur une part de l'anneau ou sa légende : une catégorie, ou pour « Autres »
+// toutes celles qu'il rassemble (un second clic les retire).
+var PARTS_DONUT = [];
+function filtrerPart(i) {
+  var p = PARTS_DONUT[i];
+  if (!p) return;
+  if (!p.membres) { filtrerForme(p.nom); return; }
+  var liste = filtresActifs('forme').slice();
+  var tous = p.membres.every(function (m) { return liste.indexOf(m) > -1; });
+  if (tous) liste = liste.filter(function (m) { return p.membres.indexOf(m) === -1; });
+  else p.membres.forEach(function (m) { if (liste.indexOf(m) === -1) liste.push(m); });
+  FILTRES.forme = liste;
+  PAGE = 1;
+  remplirFiltres();
+  rendre();
 }
 
 // Regroupe les variantes d'écriture d'après les valeurs réelles de la base :
@@ -697,7 +785,8 @@ function normForme(f) {
   if (s.indexOf('SAS') === 0) return 'SAS';
   if (s.indexOf('EURL') === 0) return 'EURL';
   if (s.indexOf('SARL') === 0) return 'SARL';
-  if (s.indexOf('SELARL') === 0 || s.indexOf('SELAS') === 0 || s.indexOf('SELURL') === 0) return 'SEL (prof. lib.)';
+  if (s.indexOf('SELARL') === 0 || s.indexOf('SELAS') === 0 || s.indexOf('SELURL') === 0 ||
+      s.indexOf('SELAFA') === 0 || s.indexOf('SELCA') === 0) return 'SEL (prof. lib.)';
   if (s.indexOf('SCM') === 0) return 'SCM';
   if (s.indexOf('SCP') === 0) return 'SCP';
   if (s.indexOf('SCI') === 0 || s.indexOf('SOCCIV') === 0 || s.indexOf('SOCIETECIV') === 0 ||
