@@ -479,7 +479,8 @@ var DEF_FILTRES = [
   // il est rangé sous « à affecter » pour rester trouvable.
   { id: 'collab',    libelle: 'Collaborateur', valeur: function (l) { return val(l, 'Collaborateur') || SANS_COLLAB; }, associesSeuls: true },
   { id: 'ldm',       libelle: 'Statut LDM',   valeur: function (l) { return val(l, 'Statut LDM'); } },
-  { id: 'forme',     libelle: 'Forme',        valeur: categorieEntite }
+  { id: 'forme',     libelle: 'Forme',        valeur: categorieEntite },
+  { id: 'imposition', libelle: 'Imposition',  valeur: impositionDe }
 ];
 var FILTRES = {};   // id → tableau de valeurs cochées
 
@@ -527,6 +528,12 @@ function ouvrirFiltre(id, ev) {
   var pan = $('fp-' + id), btn = pan && pan.previousElementSibling;
   if (!pan) return;
   pan.hidden = false;
+  // Le dernier filtre de la rangée ouvrait son menu hors de l'écran : on l'aligne
+  // alors sur le bord droit du bouton.
+  pan.style.left = ''; pan.style.right = '';
+  if (pan.getBoundingClientRect().right > document.documentElement.clientWidth - 8) {
+    pan.style.left = 'auto'; pan.style.right = '0';
+  }
   if (btn) btn.setAttribute('aria-expanded', 'true');
 }
 function fermerFiltres() {
@@ -615,15 +622,18 @@ function normActivite(a) {
   return s || 'Non renseignée';
 }
 
-// Une société civile est à l'IR ou à l'IS : tant que le régime n'a pas été obtenu
-// des associés, elle apparaît à part, ce qui donne la liste de celles à qualifier.
-function categorieEntite(l) {
-  var f = normForme(val(l, 'Forme'));
-  if (f !== 'SCI / Sté civile') return f;
-  var r = String(val(l, 'Régime fiscal') || '').toUpperCase();
-  if (r === 'IR') return 'SCI à l\'IR';
-  if (r === 'IS') return 'SCI à l\'IS';
-  return 'SCI — régime à obtenir';
+// Le type d'entité est la forme juridique, et seulement elle. L'IR ou l'IS relève
+// du régime d'imposition, qui a son propre filtre : les mêler faisait passer 181
+// SCI parfaitement identifiées pour des dossiers « à obtenir ».
+function categorieEntite(l) { return normForme(val(l, 'Forme')); }
+
+// Régime d'imposition tel que la base le connaît. Aucun régime n'est déduit de la
+// forme : une SARL peut avoir opté pour l'IR, une SCI pour l'IS.
+function impositionDe(l) {
+  var r = String(val(l, 'Régime fiscal') || '').trim().toUpperCase();
+  if (r === 'IR') return 'IR — impôt sur le revenu';
+  if (r === 'IS') return 'IS — impôt sur les sociétés';
+  return 'Non renseignée';
 }
 
 function rendreDonut(L) {
@@ -692,71 +702,7 @@ function rendreDonut(L) {
         '<text x="70" y="84" text-anchor="middle" style="font-size:9px;fill:#5a6070;letter-spacing:.5px;font-family:Poppins,sans-serif;">DOSSIERS</text>' +
       '</svg>' +
       '<div class="legende">' + legende + '</div>' +
-    '</div>' + ligneIncomplets();
-}
-
-// Forme ou activité manquante : ce qui s'affiche « Non renseignée » dans l'anneau.
-// Le registre public complète tout dossier doté d'un SIREN ; les autres sont
-// nommés, parce qu'eux seuls demandent une intervention.
-function incompletude() {
-  var r = { total: 0, registre: 0, sansSiren: [] };
-  (DATA.lignes || []).forEach(function (l) {
-    var manque = !String(val(l, 'Forme')).trim() || !String(val(l, 'Activité')).trim();
-    if (!manque) return;
-    r.total++;
-    var siren = String(val(l, 'SIRET')).replace(/\D/g, '').slice(0, 9);
-    if (siren.length === 9 || (String(val(l, 'Code NAF')).trim() && String(val(l, 'Forme')).trim())) r.registre++;
-    else r.sansSiren.push(val(l, 'Dénomination') || val(l, 'Code dossier'));
-  });
-  return r;
-}
-
-// Le compte rendu du dernier passage au registre : l'anneau se redessine à chaque
-// filtre et au rechargement de la liste, le compte rendu doit y survivre.
-var RAPPORT_REGISTRE = null;
-
-function ligneIncomplets() {
-  if (SESSION.role !== 'associe') return '';
-  var r = incompletude();
-  var rapport = RAPPORT_REGISTRE
-    ? '<span class="maj ' + RAPPORT_REGISTRE.cls + '" role="status" aria-live="polite">' + RAPPORT_REGISTRE.html + '</span>'
-    : '<span class="maj" id="dash-incomplets-maj" role="status" aria-live="polite"></span>';
-  if (!r.total) return RAPPORT_REGISTRE ? '<div class="dash-incomplets">' + rapport + '</div>' : '';
-  return '<div class="dash-incomplets" id="dash-incomplets">' +
-    '<span><b>' + r.total + '</b> dossier' + (r.total > 1 ? 's' : '') + ' sans forme ou sans activité' +
-      (r.registre ? ' · <b>' + r.registre + '</b> complétable' + (r.registre > 1 ? 's' : '') + ' depuis le registre public' : '') +
-      (r.sansSiren.length ? ' · <span title="' + esc(r.sansSiren.join(', ')) + '"><b>' + r.sansSiren.length +
-        '</b> sans SIREN, à compléter à la main</span>' : '') + '</span>' +
-    (r.registre ? '<button class="btn-ghost" onclick="completerRegistres(this)">Compléter depuis le registre</button>' : '') +
-    rapport + '</div>';
-}
-
-function completerRegistres(btn) {
-  var msg = $('dash-incomplets-maj'), libelle = btn.textContent, t0 = Date.now();
-  btn.disabled = true;
-  var tic = setInterval(function () { btn.textContent = 'Consultation du registre… ' + Math.round((Date.now() - t0) / 1000) + ' s'; }, 1000);
-  btn.textContent = 'Consultation du registre…';
-  api({ action: 'adminCompleterRegistres', email: SESSION.email, token: SESSION.token }, function (res) {
-    clearInterval(tic);
-    btn.disabled = false; btn.textContent = libelle;
-    if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
-    var r = res.rapport, faits = [];
-    if (r.formes) faits.push(r.formes + ' forme' + (r.formes > 1 ? 's' : ''));
-    if (r.activites) faits.push(r.activites + ' activité' + (r.activites > 1 ? 's' : ''));
-    if (r.codesNaf) faits.push(r.codesNaf + ' code' + (r.codesNaf > 1 ? 's' : '') + ' NAF');
-    var reste = [];
-    if (r.sansSiren.length) reste.push('sans SIREN : ' + r.sansSiren.join(', '));
-    if (r.introuvables.length) reste.push('absents du registre : ' + r.introuvables.join(', '));
-    if (r.inconnues.length) reste.push('forme rare, laissée vide : ' + r.inconnues.join(', '));
-    if (r.restants) reste.push(r.restants + ' non consultés faute de temps — relancez');
-    RAPPORT_REGISTRE = {
-      cls: faits.length ? 'ok' : '',
-      html: (faits.length ? '✓ Complété depuis le registre : ' + esc(faits.join(', ')) + '.' : 'Rien de plus à tirer du registre.') +
-        (reste.length ? '<br>Reste à la main — ' + esc(reste.join(' · ')) + '.' : '') +
-        (r.cessees.length ? '<br>⚠ Radiées au registre : ' + esc(r.cessees.join(', ')) + ' — le périmètre n\u2019a pas été modifié.' : '')
-    };
-    chargerDossiers();                     // l'anneau se redessine avec les valeurs complétées
-  });
+    '</div>';
 }
 
 // Clic sur une part de l'anneau ou sa légende : une catégorie, ou pour « Autres »
@@ -860,7 +806,8 @@ function ficheDossier(l) {
     ['Code dossier', val(l, 'Code dossier')], ['Forme', val(l, 'Forme')],
     ['SIRET', val(l, 'SIRET')], ['Ville', [val(l, 'CP'), val(l, 'Ville')].filter(Boolean).join(' ')],
     ['Activité', val(l, 'Activité')], ['Clôture', val(l, 'Clôture')],
-    ['Régime fiscal', normForme(val(l, 'Forme')) === 'SCI / Sté civile' ? (val(l, 'Régime fiscal') || 'à obtenir des associés') : ''],
+    ['Régime fiscal', val(l, 'Régime fiscal') ||
+      (normForme(val(l, 'Forme')) === 'SCI / Sté civile' ? 'à obtenir des associés' : '')],
     ['Honoraires', (SESSION.role === 'associe' && val(l, 'Honoraires HT'))
       ? val(l, 'Honoraires HT') + ' € HT / ' + val(l, 'Périodicité') + detailPostes(l) : ''],
     ['Associé', val(l, 'Associé responsable')],
