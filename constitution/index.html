@@ -1929,7 +1929,9 @@ function champsMandataire(m) {
 // ailleurs. Appelée à chaque changement d'étape et à chaque bascule qui modifie
 // la liste (forme, type d'associé, situation familiale, qualité du mandataire).
 function marquerObligatoires() {
-  Array.prototype.forEach.call(document.querySelectorAll('.oblig'), function (e) {
+  // Seules les étoiles posées par cette fonction sont retirées : celle de la légende
+  // et celle de la pièce d'identité font partie de la page.
+  Array.prototype.forEach.call(document.querySelectorAll('.oblig[data-auto]'), function (e) {
     if (e.parentNode) e.parentNode.removeChild(e);
   });
 
@@ -1947,7 +1949,7 @@ function marquerObligatoires() {
       intitule = bloc ? bloc.querySelector('.sub-title') : null;
     }
     if (!intitule || intitule.querySelector('.oblig')) return;
-    intitule.insertAdjacentHTML('beforeend', '<span class="oblig" title="Champ obligatoire">*</span>');
+    intitule.insertAdjacentHTML('beforeend', '<span class="oblig" data-auto="1" title="Champ obligatoire">*</span>');
   };
   var poserId = function (id) { poser(document.getElementById(id)); };
 
