@@ -625,7 +625,19 @@ function normActivite(a) {
 // Le type d'entité est la forme juridique, et seulement elle. L'IR ou l'IS relève
 // du régime d'imposition, qui a son propre filtre : les mêler faisait passer 181
 // SCI parfaitement identifiées pour des dossiers « à obtenir ».
-function categorieEntite(l) { return normForme(val(l, 'Forme')); }
+function categorieEntite(l) { return familleForme(normForme(val(l, 'Forme'))); }
+
+// Familles de l'anneau et du filtre « Forme ». Une EURL est une SARL à associé
+// unique, une SASU une SAS : le registre ne les distingue d'ailleurs pas. Le
+// professionnel libéral en nom propre est un entrepreneur individuel. La forme
+// exacte reste affichée dans le tableau et sur la fiche. La SEL garde sa famille,
+// segment à part pour le cabinet ; le LMNP, statut fiscal, reste à part.
+var FAMILLES_FORME = {
+  'SARL': 'SARL / EURL', 'EURL': 'SARL / EURL',
+  'SAS': 'SAS / SASU', 'SASU': 'SAS / SASU',
+  'Personne physique': 'Entreprise individuelle'
+};
+function familleForme(f) { return FAMILLES_FORME[f] || f; }
 
 // Régime d'imposition tel que la base le connaît. Aucun régime n'est déduit de la
 // forme : une SARL peut avoir opté pour l'IR, une SCI pour l'IS.
@@ -705,18 +717,18 @@ function rendreDonut(L) {
     '</div>';
 }
 
-// Clic sur une part de l'anneau ou sa légende : une catégorie, ou pour « Autres »
-// toutes celles qu'il rassemble (un second clic les retire).
+// Clic sur une part de l'anneau ou sa légende : n'affiche que cette catégorie
+// — pour « Autres », que celles qu'il rassemble, qui se déplient alors dans
+// l'anneau. Un second clic sur la même sélection revient à toutes les formes.
+// Choisir plusieurs formes à la fois reste possible par le filtre « Forme ».
 var PARTS_DONUT = [];
 function filtrerPart(i) {
   var p = PARTS_DONUT[i];
   if (!p) return;
-  if (!p.membres) { filtrerForme(p.nom); return; }
-  var liste = filtresActifs('forme').slice();
-  var tous = p.membres.every(function (m) { return liste.indexOf(m) > -1; });
-  if (tous) liste = liste.filter(function (m) { return p.membres.indexOf(m) === -1; });
-  else p.membres.forEach(function (m) { if (liste.indexOf(m) === -1) liste.push(m); });
-  FILTRES.forme = liste;
+  var cible = p.membres ? p.membres.slice() : [p.nom];
+  var actuel = filtresActifs('forme');
+  var deja = actuel.length === cible.length && cible.every(function (m) { return actuel.indexOf(m) > -1; });
+  FILTRES.forme = deja ? [] : cible;
   PAGE = 1;
   remplirFiltres();
   rendre();
@@ -747,16 +759,6 @@ function normForme(f) {
   if (s.indexOf('INDIVISION') === 0) return 'Indivision';
   if (s === 'SA') return 'SA';
   return String(f).trim();
-}
-
-function filtrerForme(f) {
-  var liste = filtresActifs('forme').slice();
-  var i = liste.indexOf(f);
-  if (i > -1) liste.splice(i, 1); else liste.push(f);   // re-clic = on retire
-  FILTRES.forme = liste;
-  PAGE = 1;
-  remplirFiltres();   // les cases du panneau doivent suivre
-  rendre();
 }
 
 function stat(n, label) {
@@ -807,7 +809,7 @@ function ficheDossier(l) {
     ['SIRET', val(l, 'SIRET')], ['Ville', [val(l, 'CP'), val(l, 'Ville')].filter(Boolean).join(' ')],
     ['Activité', val(l, 'Activité')], ['Clôture', val(l, 'Clôture')],
     ['Régime fiscal', val(l, 'Régime fiscal') ||
-      (normForme(val(l, 'Forme')) === 'SCI / Sté civile' ? 'à obtenir des associés' : '')],
+      (/^Portail/.test(val(l, 'Source')) && normForme(val(l, 'Forme')) === 'SCI / Sté civile' ? 'à obtenir des associés' : '')],
     ['Honoraires', (SESSION.role === 'associe' && val(l, 'Honoraires HT'))
       ? val(l, 'Honoraires HT') + ' € HT / ' + val(l, 'Périodicité') + detailPostes(l) : ''],
     ['Associé', val(l, 'Associé responsable')],
@@ -1646,18 +1648,21 @@ function champCompleter(ligne, colonne, libelle, courant, options, avertir) {
 function blocCompleter(l, ligne) {
   var civile = normForme(val(l, 'Forme')) === 'SCI / Sté civile';
   var regime = String(val(l, 'Régime fiscal') || '').toUpperCase();
+  // Seuls les dossiers ouverts par le portail sont signalés « à compléter » : on ne
+  // réclame pas après coup des informations pour les 700 dossiers de l'ancienne base.
+  var signaler = /^Portail/.test(val(l, 'Source'));
   var out = '';
   if (!val(l, 'Activité')) {
-    out += champCompleter(ligne, 'Activité', 'Objet social / activité', '', null, true);
+    out += champCompleter(ligne, 'Activité', 'Objet social / activité', '', null, signaler);
   }
   if (!val(l, 'Clôture')) {
     out += champCompleter(ligne, 'Clôture', 'Clôture', '',
-      [['', '— à compléter —']].concat(MOIS_CLOTURE.map(function (m) { return [m, m]; })), true);
+      [['', '—']].concat(MOIS_CLOTURE.map(function (m) { return [m, m]; })), signaler);
   }
   if (civile || !regime) {
     out += champCompleter(ligne, 'Régime fiscal', 'Régime fiscal', regime,
-      [['', '— à obtenir des associés —'], ['IS', 'IS — impôt sur les sociétés'],
-       ['IR', 'IR — impôt sur le revenu']], !regime);
+      [['', '—'], ['IS', 'IS — impôt sur les sociétés'],
+       ['IR', 'IR — impôt sur le revenu']], signaler && !regime);
   }
   return out;
 }
