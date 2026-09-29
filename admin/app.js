@@ -2254,9 +2254,20 @@ function actionEntree(e) {
        (e.lettre.honoraires === 'non' ? ' · honoraires du confrère non réglés ⚠' : '')) + '</div>' +
       '<div class="lettre-actions">Signataire : <select id="sig-' + lg + '">' +
       ENTREES.signataires.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('') +
-      '</select><button class="btn-rep" onclick="apercuLettre(' + lg + ', this)">👁 Aperçu</button>' +
+      '</select><button class="btn-rep" aria-expanded="false" onclick="basculerTexteLettre(' + lg + ', this)">✎ Texte de l\u2019email</button>' +
+      '<button class="btn-rep" onclick="apercuLettre(' + lg + ', this)">👁 Aperçu</button>' +
       '<button class="btn-envoyer" onclick="envoyerLettre(' + lg + ', this)">📨 Envoyer la lettre</button>' +
-      '<span class="maj" role="status" aria-live="polite"></span></div></div>';
+      '<span class="maj" role="status" aria-live="polite"></span></div>' +
+      // Texte de l'email qui accompagne le PDF, retouchable pour cet envoi
+      '<div id="lc-texte-zone-' + lg + '" class="texte-email" hidden>' +
+        '<textarea id="lc-texte-' + lg + '" rows="7" spellcheck="true" aria-label="Texte de l\u2019email au confrère"></textarea>' +
+        '<div class="texte-email-actions">' +
+          '<button class="btn-ghost" id="lc-texte-save-' + lg + '" hidden onclick="enregistrerTexteLettre(' + lg + ', this)">Enregistrer comme texte du cabinet</button>' +
+          '<button class="btn-ghost" onclick="reinitTexteLettre(' + lg + ')">Revenir au texte d\u2019origine</button>' +
+          '<span class="aide">« Cher Confrère » (ou « Chère Consœur ») et la signature de l\u2019associé s\u2019ajoutent d\u2019eux-mêmes. ' +
+          '<code>{société}</code> et <code>{date limite}</code> sont remplacés à l\u2019envoi.</span>' +
+          '<span class="maj" id="lc-texte-maj-' + lg + '" role="status" aria-live="polite"></span>' +
+        '</div></div></div>';
   }
 
   if (c.alerte) {
@@ -2374,15 +2385,72 @@ function creerDossier(ligne, btn) {
     });
 }
 
+// ── Email qui accompagne la lettre confraternelle ──
+// Même principe que l'invitation : retouchable pour un envoi par tout associé ;
+// devenir le texte du cabinet est réservé à l'administrateur (vérifié au serveur).
+var TEXTE_LETTRE = null, TEXTE_LETTRE_ORIGINE = null, TEXTE_LETTRE_ADMIN = false;
+
+function basculerTexteLettre(lg, btn) {
+  var zone = $('lc-texte-zone-' + lg), t = $('lc-texte-' + lg);
+  zone.hidden = !zone.hidden;
+  btn.classList.toggle('actif', !zone.hidden);
+  btn.setAttribute('aria-expanded', String(!zone.hidden));
+  if (zone.hidden) return;
+  var remplir = function () {
+    if (!t.value) t.value = TEXTE_LETTRE;
+    $('lc-texte-save-' + lg).hidden = !TEXTE_LETTRE_ADMIN;
+    t.focus();
+  };
+  if (TEXTE_LETTRE !== null) { remplir(); return; }
+  t.placeholder = 'Chargement du texte…';
+  api({ action: 'adminTexteLettre', email: SESSION.email, token: SESSION.token }, function (r) {
+    if (!r || !r.ok) { t.placeholder = '⚠ ' + ((r && r.error) || 'texte indisponible'); return; }
+    TEXTE_LETTRE = r.texte;
+    TEXTE_LETTRE_ORIGINE = r.defaut || r.texte;
+    TEXTE_LETTRE_ADMIN = !!r.peutEnregistrer;
+    t.placeholder = '';
+    remplir();
+  });
+}
+
+// Vide ou zone jamais ouverte : le serveur reprend le texte du cabinet.
+function texteLettreSaisi(lg) {
+  var t = $('lc-texte-' + lg);
+  return (t && t.value.trim()) ? t.value : '';
+}
+
+function reinitTexteLettre(lg) {
+  if (TEXTE_LETTRE_ORIGINE === null) return;
+  $('lc-texte-' + lg).value = TEXTE_LETTRE_ORIGINE;
+  $('lc-texte-' + lg).focus();
+}
+
+function enregistrerTexteLettre(lg, btn) {
+  var msg = $('lc-texte-maj-' + lg), libelle = btn.textContent, texte = texteLettreSaisi(lg);
+  if (!texte) { msg.textContent = '⚠ le texte ne peut pas être vide'; msg.className = 'maj ko'; return; }
+  btn.disabled = true; btn.textContent = 'Enregistrement…';
+  api({ action: 'adminTexteLettre', email: SESSION.email, token: SESSION.token, enregistrer: 1, texte: texte },
+    function (r) {
+      btn.disabled = false; btn.textContent = libelle;
+      if (!r || !r.ok) { msg.textContent = '⚠ ' + ((r && r.error) || 'échec'); msg.className = 'maj ko'; return; }
+      TEXTE_LETTRE = r.texte;
+      msg.textContent = '✓ texte enregistré — il servira à toutes les lettres confraternelles';
+      msg.className = 'maj ok';
+    });
+}
+
+// L'aperçu passe par la même fonction serveur que l'envoi : l'email et la lettre
+// affichés sont exactement ceux que recevra le confrère.
 function apercuLettre(ligne, btn) {
   var sig = $('sig-' + ligne).value;
   btn.disabled = true; btn.textContent = 'Chargement…';
-  api({ action: 'adminApercuLettre', email: SESSION.email, token: SESSION.token, ligne: ligne, signataire: sig },
+  api({ action: 'adminApercuLettre', email: SESSION.email, token: SESSION.token, ligne: ligne, signataire: sig,
+        texte: texteLettreSaisi(ligne) },
     function (res) {
       btn.disabled = false; btn.textContent = '👁 Aperçu';
       if (!res || !res.ok) { alert('Aperçu impossible : ' + ((res && res.error) || 'erreur')); return; }
-      apercuHtml('Aperçu de la lettre confraternelle',
-        'Sera envoyée en PDF à ' + (res.destinataire || '(email du confrère manquant)'),
+      apercuHtml('Aperçu de l\u2019envoi au confrère',
+        'Email et lettre en PDF pour ' + (res.destinataire || '(email du confrère manquant)'),
         res.html);
     });
 }
@@ -2431,7 +2499,8 @@ function envoyerLettre(ligne, btn) {
     msg.textContent = '⚠ Aucune réponse du serveur après 60 s. Rechargez la page et vérifiez le statut avant de réessayer.';
     msg.className = 'maj ko';
   }, 60000);
-  api({ action: 'adminEnvoyerLettre', email: SESSION.email, token: SESSION.token, ligne: ligne, signataire: sig },
+  api({ action: 'adminEnvoyerLettre', email: SESSION.email, token: SESSION.token, ligne: ligne, signataire: sig,
+        texte: texteLettreSaisi(ligne) },
     function (res) {
       repondu = true; clearTimeout(minuteur);
       if (res && res.ok) {
