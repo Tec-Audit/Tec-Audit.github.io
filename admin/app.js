@@ -1637,12 +1637,12 @@ function blocLDM(l, ligne) {
   var opts = ['Marc BIJAOUI', 'Samy HADDAD'].map(function (s) {
     return '<option' + (s === assoc ? ' selected' : '') + '>' + esc(s) + '</option>';
   }).join('');
-  return '<details class="coord"><summary>Lettre de mission</summary><div class="actions">' +
-    '<select id="ldm-modele-' + ligne + '" aria-label="Modèle de lettre de mission">' +
+  return '<details class="coord" ontoggle="if (this.open) prechargerLDM(' + ligne + ')"><summary>Lettre de mission</summary><div class="actions">' +
+    '<select id="ldm-modele-' + ligne + '" aria-label="Modèle de lettre de mission" onchange="prechargerLDM(' + ligne + ')">' +
       '<option value="generale" selected>Modèle général</option>' +
       '<option value="sci">Modèle SCI</option>' +
     '</select>' +
-    '<select id="ldm-sig-' + ligne + '" aria-label="Signataire">' + opts + '</select>' +
+    '<select id="ldm-sig-' + ligne + '" aria-label="Signataire" onchange="prechargerLDM(' + ligne + ')">' + opts + '</select>' +
     '<button class="btn-rep" onclick="apercuLDM(' + ligne + ', this)">👁 Aperçu</button>' +
     '<button class="btn-envoyer" onclick="genererLDM(' + ligne + ', this)">📄 Télécharger le PDF</button>' +
     '<span class="maj" role="status" aria-live="polite"></span></div></details>';
@@ -1656,15 +1656,20 @@ function paramsLDM(ligne) {
   };
 }
 
-function apercuLDM(ligne, btn) {
-  btn.disabled = true; btn.textContent = 'Chargement…';
+function cleApercuLDM(ligne) {
+  var p = paramsLDM(ligne);
+  return 'ldm|' + ligne + '|' + p.modele + '|' + p.signataire + '|' + empreinteLigne(ligne);
+}
+function payloadApercuLDM(ligne) {
   var p = paramsLDM(ligne); p.action = 'adminLDM'; p.apercu = true;
-  api(p, function (res) {
-    btn.disabled = false; btn.textContent = '👁 Aperçu';
-    if (!res || !res.ok) { alert('Aperçu impossible : ' + ((res && res.error) || 'erreur')); return; }
-    apercuHtml('Aperçu de la lettre de mission',
-      res.denomination + ' — modèle ' + (res.modele === 'sci' ? 'SCI' : 'général') +
-      ', signée ' + res.signataire, res.html);
+  return p;
+}
+function prechargerLDM(ligne) {
+  if ($('ldm-modele-' + ligne)) obtenirApercu(cleApercuLDM(ligne), payloadApercuLDM(ligne), null);
+}
+function apercuLDM(ligne) {
+  montrerApercu(cleApercuLDM(ligne), payloadApercuLDM(ligne), 'Aperçu de la lettre de mission', function (res) {
+    return res.denomination + ' — modèle ' + (res.modele === 'sci' ? 'SCI' : 'général') + ', signée ' + res.signataire;
   });
 }
 
@@ -2493,62 +2498,93 @@ function enregistrerTexteLettre(lg, btn) {
       btn.disabled = false; btn.textContent = libelle;
       if (!r || !r.ok) { msg.textContent = '⚠ ' + ((r && r.error) || 'échec'); msg.className = 'maj ko'; return; }
       TEXTE_LETTRE = r.texte;
-      APERCUS_LETTRE = {};   // les aperçus préparés portaient l'ancien texte
+      Object.keys(APERCUS).forEach(function (k) { if (k.indexOf('lc|') === 0) delete APERCUS[k]; });   // ancien texte
       msg.textContent = '✓ texte enregistré — il servira à toutes les lettres confraternelles';
       msg.className = 'maj ok';
     });
 }
 
-// L'aperçu passe par la même fonction serveur que l'envoi : l'email et la lettre
-// affichés sont exactement ceux que recevra le confrère.
-// Le serveur met 2 à 3 s à répondre : la préparation démarre dès que le pointeur
-// arrive sur la carte, et le clic trouve souvent l'aperçu prêt. Un aperçu sert
-// 10 minutes (il porte la date et l'heure du jour).
-var APERCUS_LETTRE = {};   // clé (ligne|signataire|texte) → { res, le, attente }
+// ── Aperçus préparés d'avance (lettre confraternelle, lettre de mission) ──
+// Le serveur met 2 à 3 s à répondre, parfois bien plus. La préparation démarre
+// dès que l'on montre l'intention de regarder (survol de la carte, ouverture de
+// la rubrique, changement de signataire ou de modèle) ; la fenêtre s'ouvre au
+// clic sans attendre, et un aperçu déjà prêt s'affiche aussitôt. Il sert
+// 10 minutes : il porte la date du jour et les données de la fiche, qui font
+// partie de sa clé.
+var APERCUS = {};          // clé → { res, le, attente }
 var APERCU_ATTENDU = null;
 
-function cleApercuLettre(lg) {
-  return lg + '|' + (($('sig-' + lg) || {}).value || '') + '|' + texteLettreSaisi(lg);
-}
-
-function apercuLettrePret(cle) {
-  var e = APERCUS_LETTRE[cle];
+function apercuPret(cle) {
+  var e = APERCUS[cle];
   return !!(e && e.res && Date.now() - e.le < 600000);
 }
 
-function obtenirApercuLettre(lg, cb) {
-  var cle = cleApercuLettre(lg), e = APERCUS_LETTRE[cle];
-  if (apercuLettrePret(cle)) { if (cb) cb(e.res); return; }
+function obtenirApercu(cle, payload, cb) {
+  var e = APERCUS[cle];
+  if (apercuPret(cle)) { if (cb) cb(e.res); return; }
   if (e && !e.res) { if (cb) e.attente.push(cb); return; }      // déjà en préparation
-  e = APERCUS_LETTRE[cle] = { res: null, le: 0, attente: cb ? [cb] : [] };
-  api({ action: 'adminApercuLettre', email: SESSION.email, token: SESSION.token, ligne: lg,
-        signataire: ($('sig-' + lg) || {}).value, texte: texteLettreSaisi(lg) }, function (res) {
-    if (res && res.ok) { e.res = res; e.le = Date.now(); } else { delete APERCUS_LETTRE[cle]; }
+  e = APERCUS[cle] = { res: null, le: 0, attente: cb ? [cb] : [] };
+  api(payload, function (res) {
+    if (res && res.ok) { e.res = res; e.le = Date.now(); } else { delete APERCUS[cle]; }
     var attente = e.attente; e.attente = [];
     attente.forEach(function (f) { f(res); });
   });
 }
 
-function prechargerApercuLettre(lg) {
-  if ($('sig-' + lg)) obtenirApercuLettre(lg, null);
+// Le serveur n'envoie qu'une fois une image répétée (signature) : on la remet en place.
+function avecImages(res) {
+  var h = res.html || '';
+  Object.keys(res.images || {}).forEach(function (k) { h = h.split('%%' + k + '%%').join(res.images[k]); });
+  return h;
 }
 
-var PAGE_ATTENTE_APERCU = '<html><body style="margin:0;height:90vh;display:flex;align-items:center;justify-content:center;' +
-  'font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#667085;">Préparation de l\u2019aperçu…</body></html>';
+var PAGE_ATTENTE_APERCU = pageApercu('Préparation de l’aperçu…');
+function pageApercu(texte) {
+  return '<html><body style="margin:0;height:90vh;display:flex;align-items:center;justify-content:center;' +
+    'font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#667085;padding:0 30px;text-align:center;">' +
+    esc(texte) + '</body></html>';
+}
 
-function apercuLettre(ligne) {
-  var cle = cleApercuLettre(ligne), titre = 'Aperçu de l\u2019envoi au confrère';
-  // La fenêtre s'ouvre tout de suite ; la lettre y arrive dès qu'elle est prête
-  if (!apercuLettrePret(cle)) apercuHtml(titre, 'Préparation…', PAGE_ATTENTE_APERCU);
+function montrerApercu(cle, payload, titre, sousTitre) {
+  // La fenêtre s'ouvre tout de suite ; le document y arrive dès qu'il est prêt
+  if (!apercuPret(cle)) apercuHtml(titre, 'Préparation…', PAGE_ATTENTE_APERCU);
   APERCU_ATTENDU = cle;
-  obtenirApercuLettre(ligne, function (res) {
+  obtenirApercu(cle, payload, function (res) {
     if (APERCU_ATTENDU !== cle) return;                 // fenêtre fermée, ou autre aperçu demandé
     if (!res || !res.ok) {
-      fermerApercu();
-      alert('Aperçu impossible : ' + ((res && res.error) || 'erreur'));
+      apercuHtml(titre, 'Aperçu indisponible', pageApercu('⚠ ' + ((res && res.error) || 'erreur') +
+        ' Fermez cette fenêtre et cliquez de nouveau sur « Aperçu ».'));
       return;
     }
-    apercuHtml(titre, 'Email et lettre en PDF pour ' + (res.destinataire || '(email du confrère manquant)'), res.html);
+    apercuHtml(titre, sousTitre(res), avecImages(res));
+  });
+}
+
+// Empreinte courte des données d'une fiche : un aperçu préparé avant une
+// modification (honoraires, coordonnées…) n'est plus réutilisé ensuite.
+function empreinteLigne(ligne) {
+  var l = null, h = 0;
+  DATA.lignes.some(function (x) { if (x[DATA.iLigne] === ligne) { l = x; return true; } return false; });
+  var s = l ? l.join('\u0001') : '';
+  for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h;
+}
+
+// Lettre confraternelle : l'email et la lettre affichés sont exactement ceux
+// que recevra le confrère (même fonction serveur que l'envoi).
+function cleApercuLettre(lg) {
+  return 'lc|' + lg + '|' + (($('sig-' + lg) || {}).value || '') + '|' + texteLettreSaisi(lg);
+}
+function payloadApercuLettre(lg) {
+  return { action: 'adminApercuLettre', email: SESSION.email, token: SESSION.token, ligne: lg,
+           signataire: ($('sig-' + lg) || {}).value, texte: texteLettreSaisi(lg) };
+}
+function prechargerApercuLettre(lg) {
+  if ($('sig-' + lg)) obtenirApercu(cleApercuLettre(lg), payloadApercuLettre(lg), null);
+}
+function apercuLettre(lg) {
+  montrerApercu(cleApercuLettre(lg), payloadApercuLettre(lg), 'Aperçu de l’envoi au confrère', function (res) {
+    return 'Email et lettre en PDF pour ' + (res.destinataire || '(email du confrère manquant)');
   });
 }
 
