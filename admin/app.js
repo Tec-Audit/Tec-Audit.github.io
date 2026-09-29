@@ -2438,7 +2438,10 @@ function creerDossier(ligne, btn) {
     function (res) {
       btn.disabled = false; btn.textContent = '➕ Créer le dossier';
       if (res && res.ok) {
-        msg.textContent = '✓ Dossier ' + res.code + ' créé.';
+        // Société déjà en base (importée de Pennylane) : sa fiche a été complétée, pas doublée
+        msg.textContent = res.rattache
+          ? '✓ Cette société était déjà dans la base (dossier ' + res.code + ') : sa fiche a été complétée avec le formulaire du client.'
+          : '✓ Dossier ' + res.code + ' créé.';
         msg.className = 'maj ok';
         chargerDossiers();
         setTimeout(function () { ENTREES_LE = 0; chargerEntrees(); }, 400);
