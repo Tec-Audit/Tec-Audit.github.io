@@ -15,7 +15,8 @@ var PAGE = 1, PAR_PAGE = 50;
 // refaire pourrait doubler l'envoi.
 var ACTIONS_REJOUABLES = ['adminDossiers', 'adminEntrees', 'adminIncomplets', 'adminPennylane', 'adminPieces',
   'adminPiecesDossier', 'adminCompletude', 'adminFichier', 'adminApercuLettre', 'adminTexteLettre',
-  'adminUpdate', 'adminHonoraires', 'adminMajContact', 'adminRythmeRelance', 'adminStatutLdm', 'adminStatutPiece'];
+  'adminUpdate', 'adminHonoraires', 'adminMajContact', 'adminRythmeRelance', 'adminStatutLdm', 'adminStatutPiece',
+  'adminMoteurLDM'];
 function rejouable(payload) {
   return ACTIONS_REJOUABLES.indexOf(payload.action) > -1 || (payload.action === 'adminLDM' && payload.apercu);
 }
@@ -265,6 +266,8 @@ function installerDossiers(res) {
   DATA.iLigne = res.colonnes.length;   // n° de ligne ajouté en fin
   remplirFiltres();
   rendre();
+  // Aperçus de lettre de mission sans attendre le serveur : moteur chargé à part
+  if (SESSION.role === 'associe' && !MOTEUR_LDM_DEMANDE) setTimeout(chargerMoteurLDM, 3000);
 }
 function messageActualisation(le) {
   var el = $('avis');
@@ -276,7 +279,11 @@ function messageActualisation(le) {
 function memoriserSessionAdmin() {
   try { localStorage.setItem(CLE_SESSION_ADMIN, JSON.stringify({ email: SESSION.email, nom: SESSION.nom, role: SESSION.role, token: SESSION.token, exp: Date.now() + 8 * 3600 * 1000 })); } catch (e) {}
 }
-function oublierSessionAdmin() { try { localStorage.removeItem(CLE_SESSION_ADMIN); } catch (e) {} oublierDossiers(); oublierEntrees(); }
+function oublierSessionAdmin() {
+  try { localStorage.removeItem(CLE_SESSION_ADMIN); localStorage.removeItem(CLE_MOTEUR_LDM); } catch (e) {}
+  MOTEUR_LDM = null; MOTEUR_LDM_DEMANDE = false;
+  oublierDossiers(); oublierEntrees();
+}
 function restaurerSessionAdmin() {
   try {
     var s = JSON.parse(localStorage.getItem(CLE_SESSION_ADMIN) || 'null');
@@ -1665,11 +1672,61 @@ function payloadApercuLDM(ligne) {
   return p;
 }
 function prechargerLDM(ligne) {
+  if (moteurLDM()) return;                    // l'aperçu se fabrique ici, sans le serveur
+  chargerMoteurLDM();
   if ($('ldm-modele-' + ligne)) obtenirApercu(cleApercuLDM(ligne), payloadApercuLDM(ligne), null);
 }
+function sousTitreLDM(denomination, modele, signataire) {
+  return denomination + ' — modèle ' + (modele === 'sci' ? 'SCI' : 'général') + ', signée ' + signataire;
+}
 function apercuLDM(ligne) {
-  montrerApercu(cleApercuLDM(ligne), payloadApercuLDM(ligne), 'Aperçu de la lettre de mission', function (res) {
-    return res.denomination + ' — modèle ' + (res.modele === 'sci' ? 'SCI' : 'général') + ', signée ' + res.signataire;
+  var titre = 'Aperçu de la lettre de mission', m = moteurLDM();
+  if (m) {
+    try {
+      var p = paramsLDM(ligne), l = null;
+      DATA.lignes.some(function (x) { if (x[DATA.iLigne] === ligne) { l = x; return true; } return false; });
+      var col = function (nom) { var i = DATA.idx[nom]; return (l && i !== undefined) ? String(l[i] || '') : ''; };
+      var d = m.donnees(col, p.signataire, new Date().toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }));
+      apercuHtml(titre, sousTitreLDM(d.denomination, p.modele, d.signataire), p.modele === 'sci' ? m.sci(d) : m.generale(d));
+      return;
+    } catch (e) { console.warn('portail · aperçu local de la lettre de mission impossible, passage par le serveur', e); }
+  }
+  montrerApercu(cleApercuLDM(ligne), payloadApercuLDM(ligne), titre, function (res) {
+    return sousTitreLDM(res.denomination, res.modele, res.signataire);
+  });
+}
+
+// ── Moteur de l'aperçu de la lettre de mission ──
+// Les fonctions du serveur qui rédigent la lettre, reçues une fois par session
+// (associés seulement) et gardées dans ce navigateur : l'aperçu s'affiche
+// aussitôt, sans attendre Google. Le PDF, lui, reste produit par le serveur.
+var CLE_MOTEUR_LDM = 'tec.admin.moteurLDM';
+var MOTEUR_LDM = null, MOTEUR_LDM_DEMANDE = false;
+
+function construireMoteurLDM(source) {
+  return new Function(source + '\nreturn { generale: ldmGeneraleHtml, sci: ldmSciHtml, donnees: donneesLDM };')();
+}
+
+function moteurLDM() {
+  if (MOTEUR_LDM || SESSION.role !== 'associe') return MOTEUR_LDM;
+  try {
+    var m = JSON.parse(localStorage.getItem(CLE_MOTEUR_LDM) || 'null');
+    if (m && m.source && m.email === SESSION.email) MOTEUR_LDM = construireMoteurLDM(m.source);
+  } catch (e) { MOTEUR_LDM = null; }
+  return MOTEUR_LDM;
+}
+
+// Rafraîchi une fois par session, en arrière-plan : une nouvelle version du
+// modèle déployée sur le serveur est ainsi reprise dès la connexion suivante.
+function chargerMoteurLDM() {
+  if (MOTEUR_LDM_DEMANDE || SESSION.role !== 'associe') return;
+  MOTEUR_LDM_DEMANDE = true;
+  api({ action: 'adminMoteurLDM', email: SESSION.email, token: SESSION.token }, function (r) {
+    if (!r || !r.ok || !r.source) { MOTEUR_LDM_DEMANDE = false; return; }
+    try {
+      MOTEUR_LDM = construireMoteurLDM(r.source);
+      try { localStorage.setItem(CLE_MOTEUR_LDM, JSON.stringify({ email: SESSION.email, version: r.version, source: r.source })); } catch (e) {}
+    } catch (e) { console.warn('portail · moteur de lettre de mission illisible', e); }
   });
 }
 
