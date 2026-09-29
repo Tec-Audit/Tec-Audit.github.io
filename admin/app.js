@@ -2247,12 +2247,13 @@ function actionEntree(e) {
 
   if (c.action === 'lettre') {
     var lg = e.lettre.ligne;
-    return '<div class="entree-act"><b>Étape : émettre la lettre confraternelle</b>' +
+    return '<div class="entree-act" onmouseenter="prechargerApercuLettre(' + lg + ')" onfocusin="prechargerApercuLettre(' + lg + ')">' +
+      '<b>Étape : émettre la lettre confraternelle</b>' +
       '<div class="lettre-meta">Confrère : ' + esc(e.lettre.cabinet || '—') +
       (e.lettre.confrere ? ' (' + esc(e.lettre.confrere) + ')' : '') + ' · ' + esc(e.lettre.emailConfrere || 'email manquant ⚠') +
       (e.lettre.honoraires === 'litige' ? ' · <b style="color:#b45309;">honoraires en litige ⚠</b>' :
        (e.lettre.honoraires === 'non' ? ' · honoraires du confrère non réglés ⚠' : '')) + '</div>' +
-      '<div class="lettre-actions">Signataire : <select id="sig-' + lg + '">' +
+      '<div class="lettre-actions">Signataire : <select id="sig-' + lg + '" onchange="prechargerApercuLettre(' + lg + ')">' +
       ENTREES.signataires.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('') +
       '</select><button class="btn-rep" aria-expanded="false" onclick="basculerTexteLettre(' + lg + ', this)">✎ Texte de l\u2019email</button>' +
       '<button class="btn-rep" onclick="apercuLettre(' + lg + ', this)">👁 Aperçu</button>' +
@@ -2413,10 +2414,10 @@ function basculerTexteLettre(lg, btn) {
   });
 }
 
-// Vide ou zone jamais ouverte : le serveur reprend le texte du cabinet.
+// Vide, zone jamais ouverte ou texte inchangé : le serveur reprend le texte du cabinet.
 function texteLettreSaisi(lg) {
-  var t = $('lc-texte-' + lg);
-  return (t && t.value.trim()) ? t.value : '';
+  var t = $('lc-texte-' + lg), v = t ? t.value.trim() : '';
+  return (v && v !== String(TEXTE_LETTRE || '').trim()) ? t.value : '';
 }
 
 function reinitTexteLettre(lg) {
@@ -2434,6 +2435,7 @@ function enregistrerTexteLettre(lg, btn) {
       btn.disabled = false; btn.textContent = libelle;
       if (!r || !r.ok) { msg.textContent = '⚠ ' + ((r && r.error) || 'échec'); msg.className = 'maj ko'; return; }
       TEXTE_LETTRE = r.texte;
+      APERCUS_LETTRE = {};   // les aperçus préparés portaient l'ancien texte
       msg.textContent = '✓ texte enregistré — il servira à toutes les lettres confraternelles';
       msg.className = 'maj ok';
     });
@@ -2441,18 +2443,55 @@ function enregistrerTexteLettre(lg, btn) {
 
 // L'aperçu passe par la même fonction serveur que l'envoi : l'email et la lettre
 // affichés sont exactement ceux que recevra le confrère.
-function apercuLettre(ligne, btn) {
-  var sig = $('sig-' + ligne).value;
-  btn.disabled = true; btn.textContent = 'Chargement…';
-  api({ action: 'adminApercuLettre', email: SESSION.email, token: SESSION.token, ligne: ligne, signataire: sig,
-        texte: texteLettreSaisi(ligne) },
-    function (res) {
-      btn.disabled = false; btn.textContent = '👁 Aperçu';
-      if (!res || !res.ok) { alert('Aperçu impossible : ' + ((res && res.error) || 'erreur')); return; }
-      apercuHtml('Aperçu de l\u2019envoi au confrère',
-        'Email et lettre en PDF pour ' + (res.destinataire || '(email du confrère manquant)'),
-        res.html);
-    });
+// Le serveur met 2 à 3 s à répondre : la préparation démarre dès que le pointeur
+// arrive sur la carte, et le clic trouve souvent l'aperçu prêt. Un aperçu sert
+// 10 minutes (il porte la date et l'heure du jour).
+var APERCUS_LETTRE = {};   // clé (ligne|signataire|texte) → { res, le, attente }
+var APERCU_ATTENDU = null;
+
+function cleApercuLettre(lg) {
+  return lg + '|' + (($('sig-' + lg) || {}).value || '') + '|' + texteLettreSaisi(lg);
+}
+
+function apercuLettrePret(cle) {
+  var e = APERCUS_LETTRE[cle];
+  return !!(e && e.res && Date.now() - e.le < 600000);
+}
+
+function obtenirApercuLettre(lg, cb) {
+  var cle = cleApercuLettre(lg), e = APERCUS_LETTRE[cle];
+  if (apercuLettrePret(cle)) { if (cb) cb(e.res); return; }
+  if (e && !e.res) { if (cb) e.attente.push(cb); return; }      // déjà en préparation
+  e = APERCUS_LETTRE[cle] = { res: null, le: 0, attente: cb ? [cb] : [] };
+  api({ action: 'adminApercuLettre', email: SESSION.email, token: SESSION.token, ligne: lg,
+        signataire: ($('sig-' + lg) || {}).value, texte: texteLettreSaisi(lg) }, function (res) {
+    if (res && res.ok) { e.res = res; e.le = Date.now(); } else { delete APERCUS_LETTRE[cle]; }
+    var attente = e.attente; e.attente = [];
+    attente.forEach(function (f) { f(res); });
+  });
+}
+
+function prechargerApercuLettre(lg) {
+  if ($('sig-' + lg)) obtenirApercuLettre(lg, null);
+}
+
+var PAGE_ATTENTE_APERCU = '<html><body style="margin:0;height:90vh;display:flex;align-items:center;justify-content:center;' +
+  'font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#667085;">Préparation de l\u2019aperçu…</body></html>';
+
+function apercuLettre(ligne) {
+  var cle = cleApercuLettre(ligne), titre = 'Aperçu de l\u2019envoi au confrère';
+  // La fenêtre s'ouvre tout de suite ; la lettre y arrive dès qu'elle est prête
+  if (!apercuLettrePret(cle)) apercuHtml(titre, 'Préparation…', PAGE_ATTENTE_APERCU);
+  APERCU_ATTENDU = cle;
+  obtenirApercuLettre(ligne, function (res) {
+    if (APERCU_ATTENDU !== cle) return;                 // fenêtre fermée, ou autre aperçu demandé
+    if (!res || !res.ok) {
+      fermerApercu();
+      alert('Aperçu impossible : ' + ((res && res.error) || 'erreur'));
+      return;
+    }
+    apercuHtml(titre, 'Email et lettre en PDF pour ' + (res.destinataire || '(email du confrère manquant)'), res.html);
+  });
 }
 
 // Modale d'aperçu, partagée par la lettre confraternelle, la lettre de
@@ -2476,6 +2515,7 @@ function apercuHtml(titre, sous, html) {
 }
 
 function fermerApercu() {
+  APERCU_ATTENDU = null;
   $('apercu-modale').style.display = 'none';
   var cadre = $('apercu-corps');
   cadre.removeAttribute('srcdoc');
