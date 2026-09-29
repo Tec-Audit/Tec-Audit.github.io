@@ -579,26 +579,62 @@ function majBoutonFiltre(id) {
   } else if (!n && vider) { vider.remove(); }
 }
 
+// Texte comparable : sans majuscules, sans accents, espaces insécables compris.
+function plat(s) {
+  s = String(s || '').toLowerCase();
+  if (s.normalize) s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return s.replace(/[\u00a0\u202f]/g, ' ');
+}
+
+// Adresse du siège sur une ligne : « 12 RUE DE LA PAIX, 75002 PARIS ».
+function adresseComplete(l) {
+  return [val(l, 'Adresse'), [val(l, 'CP'), val(l, 'Ville')].filter(Boolean).join(' ')]
+    .filter(Boolean).join(', ');
+}
+
 function lignesFiltrees() {
-  var q = ($('q').value || '').trim().toLowerCase();
+  // Chaque mot tapé doit se trouver quelque part, dans n'importe quel ordre : la
+  // base range le nom avant le prénom (SITBON Julien), « julien sitbon » doit
+  // pourtant trouver la fiche.
+  var mots = plat($('q').value).split(/\s+/).filter(Boolean);
   return DATA.lignes.filter(function (l) {
     // Entre valeurs d'un même critère : « ou ». Entre critères : « et ».
     for (var i = 0; i < DEF_FILTRES.length; i++) {
       var f = DEF_FILTRES[i], choisis = filtresActifs(f.id);
       if (choisis.length && choisis.indexOf(f.valeur(l)) === -1) return false;
     }
-    if (q) {
-      var hay = [val(l, 'Dénomination'), val(l, 'Nom'), val(l, 'Prénom'), val(l, 'Email'),
-                 val(l, 'Code dossier'), val(l, 'SIRET'), val(l, 'Ville'), val(l, 'Mobile')]
-                 .join(' ').toLowerCase();
-      if (hay.indexOf(q) === -1) return false;
+    if (mots.length) {
+      var hay = plat([val(l, 'Dénomination'), val(l, 'Nom'), val(l, 'Prénom'), val(l, 'Email'),
+                      val(l, 'Code dossier'), val(l, 'SIRET'), adresseComplete(l), val(l, 'Mobile')]
+                     .join(' '));
+      for (var j = 0; j < mots.length; j++) if (hay.indexOf(mots[j]) === -1) return false;
     }
     return true;
   });
 }
 
 // ── Rendu ────────────────────────────────────────────────────
+// Bouton « Réinitialiser » : visible dès qu'une recherche ou un filtre est actif.
+function nbFiltresEnCours() {
+  var n = plat($('q').value).trim() ? 1 : 0;
+  DEF_FILTRES.forEach(function (f) { n += filtresActifs(f.id).length; });
+  return n;
+}
+function majReinit() {
+  var b = $('btn-reinit');
+  if (b) b.hidden = !nbFiltresEnCours();
+}
+function reinitialiserFiltres() {
+  FILTRES = {};
+  $('q').value = '';
+  PAGE = 1;
+  fermerFiltres();
+  remplirFiltres();
+  rendre();
+}
+
 function rendre() {
+  majReinit();
   if (VUE === 'entrees' || VUE === 'pennylane' || VUE === 'incomplets') return;
   var L = lignesFiltrees();
   var contacts = {};
@@ -806,7 +842,7 @@ function ficheDossier(l) {
   var lignesSheet = l[DATA.iLigne];
   var champs = [
     ['Code dossier', val(l, 'Code dossier')], ['Forme', val(l, 'Forme')],
-    ['SIRET', val(l, 'SIRET')], ['Ville', [val(l, 'CP'), val(l, 'Ville')].filter(Boolean).join(' ')],
+    ['SIRET', val(l, 'SIRET')], ['Adresse', adresseComplete(l)],
     ['Activité', val(l, 'Activité')], ['Clôture', val(l, 'Clôture')],
     ['Régime fiscal', val(l, 'Régime fiscal') ||
       (/^Portail/.test(val(l, 'Source')) && normForme(val(l, 'Forme')) === 'SCI / Sté civile' ? 'à obtenir des associés' : '')],
@@ -1696,15 +1732,16 @@ function modifier(ligne, colonne, valeur, el) {
 // largeur de l'écran. { titre, tri (colonne réelle), largeur, rendu }
 function colonnesTable() {
   var c = [
-    { t: 'Société', tri: 'Dénomination', l: '30%', r: function (l) {
+    { t: 'Société', tri: 'Dénomination', l: '26%', r: function (l) {
         var nom = [val(l, 'Prénom'), val(l, 'Nom')].filter(Boolean).join(' ');
         return '<div class="c1">' + esc(val(l, 'Dénomination')) + '</div>' +
                (nom ? '<div class="c2">' + esc(nom) + '</div>' : ''); } },
     { t: 'Forme', tri: 'Forme', l: '13%', r: function (l) {
         return '<span class="c2">' + esc(normForme(val(l, 'Forme'))) + '</span>'; } },
-    { t: 'Ville', tri: 'Ville', l: '15%', r: function (l) {
-        return '<div class="c1">' + esc(val(l, 'Ville')) + '</div>' +
-               (val(l, 'CP') ? '<div class="c2">' + esc(val(l, 'CP')) + '</div>' : ''); } }
+    { t: 'Adresse', tri: 'Ville', l: '19%', r: function (l) {
+        var ville = [val(l, 'CP'), val(l, 'Ville')].filter(Boolean).join(' ');
+        return '<div class="c1" title="' + esc(adresseComplete(l)) + '">' + esc(val(l, 'Adresse') || ville) + '</div>' +
+               (val(l, 'Adresse') && ville ? '<div class="c2">' + esc(ville) + '</div>' : ''); } }
   ];
   if (SESSION.role === 'associe') {
     c.push({ t: 'Suivi par', tri: 'Collaborateur', l: '24%', r: function (l) {

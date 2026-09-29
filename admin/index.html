@@ -313,6 +313,10 @@
 .filtre-vider{width:100%;text-align:left;border:0;border-top:1px solid #eceff4;background:none;color:#0E4194;
   padding:8px;margin-top:4px;cursor:pointer;font:inherit;font-size:12.5px;}
 .filtre-vider:hover{background:#f2f6fc;}
+.btn-reinit{border:0;background:none;color:#0E4194;font:inherit;font-size:13px;padding:7px 4px;cursor:pointer;
+  text-decoration:underline;text-underline-offset:3px;white-space:nowrap;}
+.btn-reinit:hover{color:#0B316F;}
+.btn-reinit[hidden]{display:none;}
 
 /* Remise exceptionnelle, à côté du poste concerné */
 .ldm-bloc label.remise{color:#7a5c00;font-size:12.5px;}
@@ -399,8 +403,9 @@
   </nav>
 
   <div class="bar">
-    <input type="search" id="q" aria-label="Rechercher un dossier ou un contact" placeholder="Rechercher ( / ) : soci&eacute;t&eacute;, dirigeant, email, SIRET&hellip;">
+    <input type="search" id="q" aria-label="Rechercher un dossier ou un contact" placeholder="Rechercher ( / ) : soci&eacute;t&eacute;, dirigeant, email, SIRET, adresse&hellip;">
     <div id="zone-filtres" class="zone-filtres"></div>
+    <button type="button" class="btn-reinit" id="btn-reinit" onclick="reinitialiserFiltres()" hidden>&#10005; R&eacute;initialiser les filtres</button>
     <button class="btn-ghost" onclick="exporterCSV()">Exporter CSV</button>
     <button class="btn-ghost" id="btn-saisie" aria-expanded="false" aria-controls="saisie-cabinet" onclick="basculerSaisieCabinet()" title="Remplir un formulaire d'entr&eacute;e &agrave; la place du client">&#65291; Saisir un dossier pour un client</button>
     <button class="btn-ghost" id="btn-inviter" aria-expanded="false" aria-controls="invitation" onclick="basculerInvitation()" title="Envoyer au client le lien de son espace en ligne">&#9993; Inviter un client</button>
@@ -462,6 +467,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260925a"></script>
+<script src="app.js?v=20260929a"></script>
 </body>
 </html>
