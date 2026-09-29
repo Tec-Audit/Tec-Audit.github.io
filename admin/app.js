@@ -604,7 +604,7 @@ function lignesFiltrees() {
       if (choisis.length && choisis.indexOf(f.valeur(l)) === -1) return false;
     }
     if (mots.length) {
-      var hay = plat([val(l, 'Dénomination'), val(l, 'Nom'), val(l, 'Prénom'), val(l, 'Email'),
+      var hay = plat([val(l, 'Dénomination'), val(l, 'Mission ponctuelle'), val(l, 'Nom'), val(l, 'Prénom'), val(l, 'Email'),
                       val(l, 'Code dossier'), val(l, 'SIRET'), adresseComplete(l), val(l, 'Mobile')]
                      .join(' '));
       for (var j = 0; j < mots.length; j++) if (hay.indexOf(mots[j]) === -1) return false;
@@ -841,7 +841,8 @@ function ficheDossier(l) {
   var cls = ldm === 'SIGNÉE' ? 'ok' : (ldm === 'EN ATTENTE' ? 'warn' : 'neutre');
   var lignesSheet = l[DATA.iLigne];
   var champs = [
-    ['Code dossier', val(l, 'Code dossier')], ['Forme', val(l, 'Forme')],
+    ['Code dossier', val(l, 'Code dossier')], ['Mission ponctuelle', val(l, 'Mission ponctuelle')],
+    ['Forme', val(l, 'Forme')],
     ['SIRET', val(l, 'SIRET')], ['Adresse', adresseComplete(l)],
     ['Activité', val(l, 'Activité')], ['Clôture', val(l, 'Clôture')],
     ['Régime fiscal', val(l, 'Régime fiscal') ||
@@ -1750,7 +1751,9 @@ function colonnesTable() {
   var c = [
     { t: 'Société', tri: 'Dénomination', l: '26%', r: function (l) {
         var nom = [val(l, 'Prénom'), val(l, 'Nom')].filter(Boolean).join(' ');
+        var mission = val(l, 'Mission ponctuelle');
         return '<div class="c1">' + esc(val(l, 'Dénomination')) + '</div>' +
+               (mission ? '<div class="c2"><span class="tag neutre" title="' + esc(mission) + '">mission ponctuelle</span></div>' : '') +
                (nom ? '<div class="c2">' + esc(nom) + '</div>' : ''); } },
     { t: 'Forme', tri: 'Forme', l: '13%', r: function (l) {
         return '<span class="c2">' + esc(normForme(val(l, 'Forme'))) + '</span>'; } },
