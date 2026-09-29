@@ -873,8 +873,7 @@ function ficheDossier(l) {
     blocPieces(l, lignesSheet) +
     blocCompletude(l, lignesSheet) +
     blocContact(l, lignesSheet) +
-    blocCompleter(l, lignesSheet) +
-    (SESSION.role === 'associe' ? boutonsModif(l, lignesSheet) : '') +
+    blocInfos(l, lignesSheet) +
     (SESSION.role === 'associe' ? blocHonoraires(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLettreConfraternelle(l, lignesSheet) : '') +
@@ -891,7 +890,7 @@ function ficheDossier(l) {
 function blocStatuts(l) {
   var code = val(l, 'Code dossier');
   if (!code) return '';
-  return '<details class="coord"><summary>📄 Projet de statuts</summary>' +
+  return '<details class="coord"><summary>Projet de statuts</summary>' +
     '<div class="lettre-meta">La trame du cabinet est complétée avec les informations du dossier, ' +
     'déposée dans le dossier Drive du client et transmise au secrétariat.</div>' +
     '<div class="lettre-actions" style="margin-top:9px;">' +
@@ -927,7 +926,7 @@ function preparerStatuts(code, btn) {
 // ── Pièces du dossier : consultation et dépôt ────────────────
 function blocPieces(l, ligne) {
   return '<details class="coord" ontoggle="chargerPieces(' + ligne + ', this)">' +
-    '<summary>📎 Pièces du dossier</summary>' +
+    '<summary>Pièces du dossier</summary>' +
     '<div class="lettre-actions" style="margin-top:9px;">' +
       '<label class="btn-rep" style="cursor:pointer;">➕ Ajouter des documents' +
         '<input type="file" id="up-' + ligne + '" multiple accept="image/*,.pdf" style="display:none;" ' +
@@ -985,7 +984,7 @@ function blocCompletude(l, ligne) {
   var code = val(l, 'Code dossier');
   if (!code) return '';
   return '<details class="coord" ontoggle="chargerCompletude(' + ligne + ', this)" data-code="' + esc(code) + '">' +
-    '<summary>✅ Complétude du dossier</summary>' +
+    '<summary>Complétude du dossier</summary>' +
     '<div class="completude" id="cp-' + ligne + '" hidden></div></details>';
 }
 
@@ -1448,7 +1447,7 @@ function deposerPieces(ligne, input) {
 var CHAMPS_CONTACT = ['Civilité', 'Nom', 'Prénom', 'Qualité', 'Email', 'Mobile', 'Tél fixe', 'Adresse', 'CP', 'Ville'];
 
 function blocContact(l, ligne) {
-  return '<details class="coord"><summary>✎ Modifier les coordonnées</summary><div class="coord-grille">' +
+  return '<details class="coord"><summary>Modifier les coordonnées</summary><div class="coord-grille">' +
     CHAMPS_CONTACT.map(function (c) {
       var id = 'ct-' + ligne + '-' + c.replace(/[^a-zA-Z]/g, '');
       var v = esc(val(l, c));
@@ -1506,12 +1505,18 @@ function blocHonoraires(l, ligne) {
   var opts = ['', 'Mensuelle', 'Trimestrielle', 'Annuelle'].map(function (o) {
     return '<option value="' + esc(o) + '"' + (o === per ? ' selected' : '') + '>' + (o || '—') + '</option>';
   }).join('');
-  return '<div class="actions ldm-bloc">' +
-    '<b style="color:var(--blue-dark);">Honoraires</b>' +
+  return '<details class="coord"><summary>Honoraires<span class="resume">' + esc(resumeHonoraires(l)) + '</span></summary>' +
+    '<div class="actions honoraires">' +
     champsPostes('hp-' + ligne + '-', valeurs) +
     '<label>Facturation <select id="hper-' + ligne + '" style="width:118px;">' + opts + '</select></label>' +
     '<button class="btn-rep" onclick="enregistrerHonoraires(' + ligne + ', this)">Enregistrer</button>' +
-    '<span class="maj" role="status" aria-live="polite"></span></div>';
+    '<span class="maj" role="status" aria-live="polite"></span></div></details>';
+}
+
+// Montant en clair dans le titre replié : « 825 € HT / annuelle ».
+function resumeHonoraires(l) {
+  var h = val(l, 'Honoraires HT'), per = val(l, 'Périodicité');
+  return h ? h + ' € HT' + (per ? ' / ' + per.toLowerCase() : '') : 'non renseignés';
 }
 
 function enregistrerHonoraires(ligne, btn) {
@@ -1525,6 +1530,7 @@ function enregistrerHonoraires(ligne, btn) {
     btn.disabled = false;
     if (res && res.ok) {
       msg.textContent = '✓ enregistré'; msg.className = 'maj ok';
+      var resume = btn.closest('details') && btn.closest('details').querySelector('.resume');
       DATA.lignes.forEach(function (l) {
         if (l[DATA.iLigne] !== ligne) return;
         POSTES.forEach(function (po) {
@@ -1533,6 +1539,7 @@ function enregistrerHonoraires(ligne, btn) {
         });
         if (DATA.idx['Honoraires HT'] !== undefined) l[DATA.idx['Honoraires HT']] = res.total;
         if (DATA.idx['Périodicité'] !== undefined) l[DATA.idx['Périodicité']] = ($('hper-' + ligne) || {}).value || '';
+        if (resume) resume.textContent = resumeHonoraires(l);
       });
     } else {
       msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko';
@@ -1549,8 +1556,7 @@ function blocLettreConfraternelle(l, ligne) {
     return '<label>' + esc(libelle) + ' <input type="' + (type || 'text') + '" id="lc-' + ligne + '-' + suffixe +
       '" style="width:' + largeur + ';"></label>';
   };
-  return '<details class="actions ldm-bloc" style="display:block;">' +
-    '<summary style="cursor:pointer;color:var(--blue-dark);font-weight:600;">Lettre confraternelle — à émettre après coup</summary>' +
+  return '<details class="coord"><summary>Lettre confraternelle — à émettre après coup</summary>' +
     '<div class="lettre-meta" style="margin:6px 0;">À utiliser quand un ancien expert-comptable n\'avait pas été signalé ' +
     'à la saisie. La lettre rejoint la file des « Nouveaux dossiers », d\'où elle s\'envoie comme les autres.</div>' +
     '<div class="lettre-actions">' +
@@ -1596,8 +1602,7 @@ function blocLDM(l, ligne) {
   var opts = ['Marc BIJAOUI', 'Samy HADDAD'].map(function (s) {
     return '<option' + (s === assoc ? ' selected' : '') + '>' + esc(s) + '</option>';
   }).join('');
-  return '<div class="actions ldm-bloc">' +
-    '<b style="color:var(--blue-dark);">Lettre de mission</b>' +
+  return '<details class="coord"><summary>Lettre de mission</summary><div class="actions">' +
     '<select id="ldm-modele-' + ligne + '" aria-label="Modèle de lettre de mission">' +
       '<option value="generale" selected>Modèle général</option>' +
       '<option value="sci">Modèle SCI</option>' +
@@ -1605,7 +1610,7 @@ function blocLDM(l, ligne) {
     '<select id="ldm-sig-' + ligne + '" aria-label="Signataire">' + opts + '</select>' +
     '<button class="btn-rep" onclick="apercuLDM(' + ligne + ', this)">👁 Aperçu</button>' +
     '<button class="btn-envoyer" onclick="genererLDM(' + ligne + ', this)">📄 Télécharger le PDF</button>' +
-    '<span class="maj" role="status" aria-live="polite"></span></div>';
+    '<span class="maj" role="status" aria-live="polite"></span></div></details>';
 }
 
 function paramsLDM(ligne) {
@@ -1676,7 +1681,7 @@ function champCompleter(ligne, colonne, libelle, courant, options, avertir) {
       }).join('') + '</select>'
     : '<input type="text" value="' + esc(courant) + '" placeholder="à compléter" ' +
       'style="width:270px;" onchange="' + appel + '">';
-  return '<div class="actions">' + esc(libelle) + ' : ' + champ +
+  return '<div class="actions"><span class="lib">' + esc(libelle) + '</span>' + champ +
     (avertir ? ' <span class="tag warn">à compléter</span>' : '') +
     '<span class="maj" role="status" aria-live="polite"></span></div>';
 }
@@ -1703,10 +1708,21 @@ function blocCompleter(l, ligne) {
   return out;
 }
 
+// Clôture, régime, activité manquants et périmètre, repliés comme le reste de la
+// fiche. Un dossier du portail qui attend une réponse s'ouvre d'office, avec le
+// nombre de champs à compléter dans le titre.
+function blocInfos(l, ligne) {
+  var html = blocCompleter(l, ligne) + (SESSION.role === 'associe' ? boutonsModif(l, ligne) : '');
+  if (!html) return '';
+  var n = html.split('<span class="tag warn">à compléter</span>').length - 1;
+  return '<details class="coord infos"' + (n ? ' open' : '') + '><summary>Informations du dossier' +
+    (n ? '<span class="tag warn">' + n + ' à compléter</span>' : '') + '</summary>' + html + '</details>';
+}
+
 function boutonsModif(l, ligne) {
   var per = val(l, 'Périmètre');
   var opts = ['Actif', 'À sortir (à confirmer)', 'Sorti', 'Radiée / Cessée'];
-  return '<div class="actions">Périmètre : <select onchange="modifier(' + ligne + ", 'Périmètre', this.value, this)\">" +
+  return '<div class="actions"><span class="lib">Périmètre</span><select onchange="modifier(' + ligne + ", 'Périmètre', this.value, this)\">" +
     opts.map(function (o) {
       return '<option' + (o === per ? ' selected' : '') + '>' + esc(o) + '</option>';
     }).join('') + '</select><span class="maj" role="status" aria-live="polite"></span></div>';
