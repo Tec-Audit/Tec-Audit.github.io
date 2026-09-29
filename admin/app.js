@@ -10,12 +10,33 @@ var TRI = { col: 'Dénomination', dir: 1 };
 var LIGNE_OUVERTE = null, REVENIR_SUR_FICHE = false;
 var PAGE = 1, PAR_PAGE = 50;
 
+// Actions qu'on peut refaire sans risque : lectures, ou écritures qui reposent la
+// même valeur. Un envoi d'email, une création ou un dépôt n'y figurent pas : les
+// refaire pourrait doubler l'envoi.
+var ACTIONS_REJOUABLES = ['adminDossiers', 'adminEntrees', 'adminIncomplets', 'adminPennylane', 'adminPieces',
+  'adminPiecesDossier', 'adminCompletude', 'adminFichier', 'adminApercuLettre', 'adminTexteLettre',
+  'adminUpdate', 'adminHonoraires', 'adminMajContact', 'adminRythmeRelance', 'adminStatutLdm', 'adminStatutPiece'];
+function rejouable(payload) {
+  return ACTIONS_REJOUABLES.indexOf(payload.action) > -1 || (payload.action === 'adminLDM' && payload.apercu);
+}
+
 function api(payload, cb, essai) {
   var debut = Date.now();
   payload.t0 = debut;   // permet au serveur de mesurer le temps passé avant lui
   fetch(APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) })
-    .then(function (r) { return r.json(); })
+    .then(function (r) { return r.text(); })
+    .then(function (txt) {
+      // Google renvoie parfois sa propre page d'erreur (HTML) à la place de la
+      // réponse du portail : on le dit en clair plutôt que « Unexpected token < ».
+      try { return JSON.parse(txt); }
+      catch (e) {
+        console.warn('portail · ' + payload.action + ' · page reçue au lieu de la réponse : ' + String(txt).slice(0, 200));
+        return { ok: false, rejouer: true,
+                 error: 'Google a renvoyé une page d\u2019erreur au lieu de la réponse du portail. Réessayez dans un instant.' };
+      }
+    })
     .then(function (res) {
+      if (res && res.rejouer) return res;
       // Mesure visible dans la console (console.debug est masqué par défaut
       // dans Chrome : on utilise console.log pour que la ligne apparaisse).
       var duree = (Date.now() - debut) / 1000;
@@ -24,8 +45,13 @@ function api(payload, cb, essai) {
       console.log('portail · ' + payload.action + ' · ' + duree.toFixed(1).replace('.', ',') + ' s · ' + poids + ' Ko' + detail);
       return res;
     })
-    .catch(function (e) { return { ok: false, error: 'Erreur réseau : ' + e.message }; })
+    .catch(function (e) { return { ok: false, rejouer: true, error: 'Erreur réseau : ' + e.message }; })
     .then(function (res) {
+      if (res && res.rejouer && !essai && rejouable(payload)) {
+        console.warn('portail · ' + payload.action + ' · nouvel essai dans 1,5 s');
+        setTimeout(function () { api(payload, cb, 1); }, 1500);
+        return;
+      }
       // Réponse de la page d'accueil du service : la requête a été transformée en
       // simple consultation en cours de route. On la refait une fois.
       if (res && res.service === 'TEC AUDIT Onboarding' && payload.action) {
@@ -1721,11 +1747,43 @@ function blocCompleter(l, ligne) {
 // fiche. Un dossier du portail qui attend une réponse s'ouvre d'office, avec le
 // nombre de champs à compléter dans le titre.
 function blocInfos(l, ligne) {
-  var html = blocCompleter(l, ligne) + (SESSION.role === 'associe' ? boutonsModif(l, ligne) : '');
+  var associe = SESSION.role === 'associe';
+  var html = (associe ? choixCollaborateur(l, ligne) : '') + blocCompleter(l, ligne) + (associe ? boutonsModif(l, ligne) : '');
   if (!html) return '';
   var n = html.split('<span class="tag warn">à compléter</span>').length - 1;
-  return '<details class="coord infos"' + (n ? ' open' : '') + '><summary>Informations du dossier' +
+  var aAffecter = associe && !val(l, 'Collaborateur');
+  return '<details class="coord infos"' + (n || aAffecter ? ' open' : '') + '><summary>Informations du dossier' +
+    (aAffecter ? '<span class="tag warn">collaborateur à affecter</span>' : '') +
     (n ? '<span class="tag warn">' + n + ' à compléter</span>' : '') + '</summary>' + html + '</details>';
+}
+
+// Collaborateur en charge : choisi parmi ceux qui suivent déjà des dossiers, les
+// seuls dont le nom est sûr de correspondre à un compte de l'onglet Utilisateurs.
+function choixCollaborateur(l, ligne) {
+  var actuel = val(l, 'Collaborateur'), noms = {};
+  DATA.lignes.forEach(function (x) { var v = val(x, 'Collaborateur'); if (v) noms[v] = 1; });
+  if (actuel) noms[actuel] = 1;
+  var opts = [''].concat(Object.keys(noms).sort(function (a, b) { return a.localeCompare(b, 'fr'); }));
+  return '<div class="actions"><span class="lib">Collaborateur</span>' +
+    '<select onchange="affecterCollaborateur(' + ligne + ', this)" aria-label="Collaborateur en charge">' +
+    opts.map(function (o) {
+      return '<option value="' + esc(o) + '"' + (o === actuel ? ' selected' : '') + '>' + esc(o || SANS_COLLAB) + '</option>';
+    }).join('') + '</select><span class="maj" role="status" aria-live="polite"></span></div>';
+}
+
+function affecterCollaborateur(ligne, sel) {
+  var msg = sel.parentNode.querySelector('.maj'), valeur = sel.value;
+  sel.disabled = true; msg.textContent = '…'; msg.className = 'maj';
+  api({ action: 'adminUpdate', email: SESSION.email, token: SESSION.token,
+        ligne: ligne, colonne: 'Collaborateur', valeur: valeur }, function (res) {
+    sel.disabled = false;
+    if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
+    DATA.lignes.forEach(function (x) { if (x[DATA.iLigne] === ligne) x[DATA.idx['Collaborateur']] = valeur; });
+    // Tableau, filtre « Collaborateur » et fiche reflètent l'affectation
+    var y = window.scrollY;
+    remplirFiltres(); rendre();
+    window.scrollTo(0, y);
+  });
 }
 
 function boutonsModif(l, ligne) {
