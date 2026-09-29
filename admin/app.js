@@ -604,7 +604,7 @@ function lignesFiltrees() {
       if (choisis.length && choisis.indexOf(f.valeur(l)) === -1) return false;
     }
     if (mots.length) {
-      var hay = plat([val(l, 'Dénomination'), val(l, 'Mission ponctuelle'), val(l, 'Nom'), val(l, 'Prénom'), val(l, 'Email'),
+      var hay = plat([val(l, 'Dénomination'), val(l, 'Missions ponctuelles'), val(l, 'Nom'), val(l, 'Prénom'), val(l, 'Email'),
                       val(l, 'Code dossier'), val(l, 'SIRET'), adresseComplete(l), val(l, 'Mobile')]
                      .join(' '));
       for (var j = 0; j < mots.length; j++) if (hay.indexOf(mots[j]) === -1) return false;
@@ -836,19 +836,26 @@ function rendreContacts(L) {
   $('liste').innerHTML = html || '<p class="vide">Aucun résultat.</p>';
 }
 
+// Missions ponctuelles, distinctes des honoraires récurrents : « Consultation
+// fiscale — 1220 € HT ». Le montant reste réservé aux associés.
+function missionsDe(l) {
+  var m = val(l, 'Missions ponctuelles'), h = val(l, 'Honoraires ponctuels HT');
+  return m ? m + (SESSION.role === 'associe' && h ? ' — ' + h + ' € HT' : '') : '';
+}
+
 function ficheDossier(l) {
   var ldm = val(l, 'Statut LDM');
   var cls = ldm === 'SIGNÉE' ? 'ok' : (ldm === 'EN ATTENTE' ? 'warn' : 'neutre');
   var lignesSheet = l[DATA.iLigne];
   var champs = [
-    ['Code dossier', val(l, 'Code dossier')], ['Mission ponctuelle', val(l, 'Mission ponctuelle')],
-    ['Forme', val(l, 'Forme')],
+    ['Code dossier', val(l, 'Code dossier')], ['Forme', val(l, 'Forme')],
     ['SIRET', val(l, 'SIRET')], ['Adresse', adresseComplete(l)],
     ['Activité', val(l, 'Activité')], ['Clôture', val(l, 'Clôture')],
     ['Régime fiscal', val(l, 'Régime fiscal') ||
       (/^Portail/.test(val(l, 'Source')) && normForme(val(l, 'Forme')) === 'SCI / Sté civile' ? 'à obtenir des associés' : '')],
     ['Honoraires', (SESSION.role === 'associe' && val(l, 'Honoraires HT'))
       ? val(l, 'Honoraires HT') + ' € HT / ' + val(l, 'Périodicité') + detailPostes(l) : ''],
+    ['Missions ponctuelles', missionsDe(l)],
     ['Associé', val(l, 'Associé responsable')],
     ['Collaborateur', val(l, 'Collaborateur') || (SESSION.role === 'associe' ? SANS_COLLAB : '')]
   ].filter(function (c) { return c[1]; });
@@ -1517,7 +1524,8 @@ function blocHonoraires(l, ligne) {
 // Montant en clair dans le titre replié : « 825 € HT / annuelle ».
 function resumeHonoraires(l) {
   var h = val(l, 'Honoraires HT'), per = val(l, 'Périodicité');
-  return h ? h + ' € HT' + (per ? ' / ' + per.toLowerCase() : '') : 'non renseignés';
+  if (h) return h + ' € HT' + (per ? ' / ' + per.toLowerCase() : '');
+  return val(l, 'Missions ponctuelles') ? 'aucun honoraire récurrent' : 'non renseignés';
 }
 
 function enregistrerHonoraires(ligne, btn) {
@@ -1751,9 +1759,12 @@ function colonnesTable() {
   var c = [
     { t: 'Société', tri: 'Dénomination', l: '26%', r: function (l) {
         var nom = [val(l, 'Prénom'), val(l, 'Nom')].filter(Boolean).join(' ');
-        var mission = val(l, 'Mission ponctuelle');
+        // Étiquette pour la société cliente d'une seule mission ponctuelle, sans
+        // honoraires récurrents ; un client habituel n'en a pas besoin.
+        var mission = val(l, 'Missions ponctuelles');
+        var seule = mission && !val(l, 'Périodicité') && !val(l, 'Honoraires HT');
         return '<div class="c1">' + esc(val(l, 'Dénomination')) + '</div>' +
-               (mission ? '<div class="c2"><span class="tag neutre" title="' + esc(mission) + '">mission ponctuelle</span></div>' : '') +
+               (seule ? '<div class="c2"><span class="tag neutre" title="' + esc(mission) + '">mission ponctuelle</span></div>' : '') +
                (nom ? '<div class="c2">' + esc(nom) + '</div>' : ''); } },
     { t: 'Forme', tri: 'Forme', l: '13%', r: function (l) {
         return '<span class="c2">' + esc(normForme(val(l, 'Forme'))) + '</span>'; } },

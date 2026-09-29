@@ -361,7 +361,12 @@
             <div class="field"><label for="ec-email">Email du cabinet</label><input type="email" id="ec-email" oninput="validateEmail(this)"></div>
             <div class="field"><label for="ec-tel">Téléphone</label><input type="tel" id="ec-tel" maxlength="14" oninput="formatTel(this)"></div>
             <div class="field gc2"><label for="ec-adresse">Adresse du cabinet <span class="note">(pour le courrier confraternel)</span></label><input type="text" id="ec-adresse"></div>
-            <div class="field"><label for="ec-dernier-ex">Dernier exercice traité par ce cabinet <span class="note">(date de clôture)</span></label><input type="date" id="ec-dernier-ex"></div>
+            <div class="field"><label for="ec-dex-mois">Dernier exercice traité par ce cabinet <span class="note">(mois et année de clôture)</span></label>
+              <div style="display:flex;gap:8px;">
+                <select id="ec-dex-mois" onchange="majDernierExercice()" aria-label="Mois de clôture du dernier exercice"><option value="">Mois</option></select>
+                <select id="ec-dex-annee" onchange="majDernierExercice()" aria-label="Année de clôture du dernier exercice" style="max-width:110px;"><option value="">Année</option></select>
+              </div>
+              <input type="hidden" id="ec-dernier-ex"></div>
             <div class="field"><label>Ses honoraires sont-ils réglés&nbsp;?</label>
               <div class="choices">
                 <label class="choice"><input type="radio" name="ec-honoraires" value="oui"><span>Oui</span></label>
@@ -591,6 +596,26 @@ var PIECES = [
   { id: 'p8', label: 'Éléments sociaux', hint: 'Contrats de travail, dernier bordereau DSN — si salariés' },
   { id: 'p9', label: 'Extrait du registre des bénéficiaires effectifs', hint: 'Moins de 3 mois — data.inpi.fr', tag: 'rbe' }
 ];
+
+// ── Dernier exercice chez le confrère ─────────────────────────
+// Un exercice se clôt en fin de mois : on demande le mois et l'année, et la date
+// de clôture (dernier jour du mois) est calculée — plus de « 01/07 » pour « 30/06 ».
+var MOIS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août',
+               'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+(function () {
+  var mois = document.getElementById('ec-dex-mois'), annee = document.getElementById('ec-dex-annee');
+  if (!mois || !annee) return;
+  MOIS_FR.forEach(function (m, i) { mois.insertAdjacentHTML('beforeend', '<option value="' + (i + 1) + '">' + m + '</option>'); });
+  for (var a = new Date().getFullYear(); a >= new Date().getFullYear() - 5; a--) {
+    annee.insertAdjacentHTML('beforeend', '<option>' + a + '</option>');
+  }
+})();
+function majDernierExercice() {
+  var m = +document.getElementById('ec-dex-mois').value, a = +document.getElementById('ec-dex-annee').value;
+  var j = (m && a) ? new Date(a, m, 0).getDate() : 0;
+  document.getElementById('ec-dernier-ex').value = j
+    ? ('0' + j).slice(-2) + '/' + ('0' + m).slice(-2) + '/' + a : '';
+}
 
 // ── Bénéficiaires effectifs ───────────────────────────────────
 var NB_BE = 0;
