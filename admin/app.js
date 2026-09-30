@@ -916,6 +916,7 @@ function ficheDossier(l) {
     blocContact(l, lignesSheet) +
     blocInfos(l, lignesSheet) +
     (SESSION.role === 'associe' ? blocHonoraires(l, lignesSheet) : '') +
+    (SESSION.role === 'associe' ? blocBanque(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLettreConfraternelle(l, lignesSheet) : '') +
     blocStatuts(l) +
@@ -1396,19 +1397,24 @@ function deposerLdmSignee(ligne, input) {
   var refus = refusEnvoi(fichiers);
   if (refus) { msg.textContent = '⚠ ' + refus; msg.className = 'maj ko'; input.value = ''; return; }
 
+  // Le mandat SEPA de la lettre porte l'IBAN : rempli, il vaut RIB pour le cabinet
+  var ribFourni = confirm('Le mandat de prélèvement SEPA (dernière annexe) est-il rempli avec l\u2019IBAN et le BIC ?\n\n' +
+    'OK : la pièce « RIB de la société » sera marquée reçue, avec ce document.\n' +
+    'Annuler : elle reste attendue.');
   msg.textContent = '⏳ Enregistrement de ' + fichiers.length + ' document(s)…';
   msg.className = 'maj';
 
   lireFichiers(fichiers, 'application/pdf').then(function (payload) {
     api({ action: 'adminLdmSignee', email: SESSION.email, token: SESSION.token,
-          ligne: ligne, fichiers: payload }, function (res) {
+          ligne: ligne, fichiers: payload, ribFourni: ribFourni }, function (res) {
       input.value = '';
       if (!res || !res.ok) {
         msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
         msg.className = 'maj ko'; return;
       }
       msg.textContent = '✓ signée le ' + res.date +
-        (res.ajoutes > 1 ? ' — ' + res.ajoutes + ' documents' : '');
+        (res.ajoutes > 1 ? ' — ' + res.ajoutes + ' documents' : '') +
+        (res.ribFourni ? (res.ribMarque ? ' — RIB marqué reçu (mandat SEPA)' : ' — mandat SEPA noté (pas de pièce RIB attendue pour ce dossier)') : '');
       msg.className = 'maj ok';
       var sel = msg.parentNode.querySelector('select');
       if (sel) sel.value = 'SIGNÉE';
@@ -1552,6 +1558,67 @@ function blocHonoraires(l, ligne) {
     '<label>Facturation <select id="hper-' + ligne + '" style="width:118px;">' + opts + '</select></label>' +
     '<button class="btn-rep" onclick="enregistrerHonoraires(' + ligne + ', this)">Enregistrer</button>' +
     '<span class="maj" role="status" aria-live="polite"></span></div></details>';
+}
+
+// ── Coordonnées bancaires (associés) ──
+// IBAN et BIC recopiés du mandat SEPA de la lettre de mission ; un IBAN valide
+// vaut RIB vérifié dans la liste des pièces. Contrôlés ici puis au serveur.
+function ibanValideFront(iban) {
+  var s = String(iban || '').replace(/\s/g, '').toUpperCase();
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(s) || (s.indexOf('FR') === 0 && s.length !== 27)) return false;
+  var r = s.slice(4) + s.slice(0, 4), reste = 0;
+  for (var i = 0; i < r.length; i++) {
+    var c = r.charCodeAt(i), v = c >= 65 ? String(c - 55) : r[i];
+    for (var j = 0; j < v.length; j++) reste = (reste * 10 + (+v[j])) % 97;
+  }
+  return reste === 1;
+}
+function resumeBanque(l) {
+  var iban = String(val(l, 'IBAN') || '').replace(/\s/g, '');
+  if (!iban) return val(l, 'Mandat SEPA signé le') ? 'mandat SEPA du ' + val(l, 'Mandat SEPA signé le') + ', IBAN à recopier' : 'non renseignées';
+  return 'IBAN ' + iban.slice(0, 4) + ' •••• ' + iban.slice(-4);
+}
+function blocBanque(l, ligne) {
+  return '<details class="coord"><summary>Coordonnées bancaires<span class="resume">' + esc(resumeBanque(l)) + '</span></summary>' +
+    '<div class="actions banque">' +
+      '<label>IBAN <input type="text" id="iban-' + ligne + '" value="' + esc(val(l, 'IBAN')) + '" placeholder="FR76 …" ' +
+        'autocomplete="off" spellcheck="false" style="width:300px;font-family:ui-monospace,Menlo,monospace;" oninput="controlerIban(' + ligne + ')"></label>' +
+      '<label>BIC <input type="text" id="bic-' + ligne + '" value="' + esc(val(l, 'BIC')) + '" placeholder="BNPAFRPPXXX" ' +
+        'autocomplete="off" spellcheck="false" style="width:130px;font-family:ui-monospace,Menlo,monospace;"></label>' +
+      '<button class="btn-rep" onclick="enregistrerBanque(' + ligne + ', this)">Enregistrer</button>' +
+      '<span class="maj" id="iban-maj-' + ligne + '" role="status" aria-live="polite"></span>' +
+    '</div>' +
+    '<div class="lettre-meta" style="margin-top:4px;">À recopier depuis le mandat SEPA de la lettre de mission signée. ' +
+      'Un IBAN valide marque la pièce « RIB de la société » comme vérifiée.</div></details>';
+}
+function controlerIban(ligne) {
+  var champ = $('iban-' + ligne), msg = $('iban-maj-' + ligne), v = champ.value.replace(/\s/g, '');
+  if (v.length < 15) { msg.textContent = ''; champ.style.borderColor = ''; return; }
+  var ok = ibanValideFront(v);
+  champ.style.borderColor = ok ? '#2e7d32' : '#c0392b';
+  msg.textContent = ok ? '✓ IBAN valide' : '⚠ IBAN incorrect (clé de contrôle)';
+  msg.className = 'maj ' + (ok ? 'ok' : 'ko');
+}
+function enregistrerBanque(ligne, btn) {
+  var msg = $('iban-maj-' + ligne), iban = $('iban-' + ligne).value, bic = $('bic-' + ligne).value;
+  if (iban.trim() && !ibanValideFront(iban)) { msg.textContent = '⚠ IBAN incorrect : vérifiez la saisie.'; msg.className = 'maj ko'; return; }
+  btn.disabled = true; msg.textContent = '…'; msg.className = 'maj';
+  api({ action: 'adminBanque', email: SESSION.email, token: SESSION.token, ligne: ligne, iban: iban, bic: bic }, function (res) {
+    btn.disabled = false;
+    if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
+    $('iban-' + ligne).value = res.iban; $('bic-' + ligne).value = res.bic;
+    var l = null;
+    DATA.lignes.forEach(function (x) {
+      if (x[DATA.iLigne] !== ligne) return;
+      l = x;
+      if (DATA.idx['IBAN'] !== undefined) x[DATA.idx['IBAN']] = res.iban;
+      if (DATA.idx['BIC'] !== undefined) x[DATA.idx['BIC']] = res.bic;
+    });
+    var resume = btn.closest('details').querySelector('.resume');
+    if (resume) resume.textContent = res.iban ? 'IBAN ' + res.iban.replace(/\s/g, '').slice(0, 4) + ' •••• ' + res.iban.replace(/\s/g, '').slice(-4) : 'non renseignées';
+    msg.textContent = '✓ enregistré' + (res.ribMarque ? ' — RIB vérifié dans les pièces' : '');
+    msg.className = 'maj ok';
+  });
 }
 
 // Montant en clair dans le titre replié : « 825 € HT / annuelle ».
