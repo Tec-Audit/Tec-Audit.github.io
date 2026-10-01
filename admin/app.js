@@ -5,6 +5,7 @@ var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwbTEFCrnTOjmhycG
 
 var SESSION = { email: '', nom: '', role: '', token: '' };
 var DATA = { colonnes: [], lignes: [], idx: {} };
+var JSE = null;   // signature électronique jesignexpert : configurée, reliée au cabinet
 var VUE = 'dossiers';
 var TRI = { col: 'Dénomination', dir: 1 };
 var LIGNE_OUVERTE = null, REVENIR_SUR_FICHE = false;
@@ -245,7 +246,7 @@ function memoriserDossiers(res) {
   try {
     localStorage.setItem(CLE_DOSSIERS, JSON.stringify({
       email: SESSION.email, le: Date.now(),
-      colonnes: res.colonnes, lignes: res.lignes, role: res.role, nom: res.nom
+      colonnes: res.colonnes, lignes: res.lignes, role: res.role, nom: res.nom, jse: res.jse || null
     }));
   } catch (e) {}   // quota dépassé : on se passe du cache, sans rien casser
 }
@@ -264,6 +265,7 @@ function installerDossiers(res) {
   DATA.idx = {};
   res.colonnes.forEach(function (c, i) { DATA.idx[c] = i; });
   DATA.iLigne = res.colonnes.length;   // n° de ligne ajouté en fin
+  if (res.jse) JSE = res.jse;
   remplirFiltres();
   rendre();
   // Aperçus de lettre de mission sans attendre le serveur : moteur chargé à part
@@ -281,7 +283,7 @@ function memoriserSessionAdmin() {
 }
 function oublierSessionAdmin() {
   try { localStorage.removeItem(CLE_SESSION_ADMIN); localStorage.removeItem(CLE_MOTEUR_LDM); } catch (e) {}
-  MOTEUR_LDM = null; MOTEUR_LDM_DEMANDE = false;
+  MOTEUR_LDM = null; MOTEUR_LDM_DEMANDE = false; JSE = null;
   oublierDossiers(); oublierEntrees();
 }
 function restaurerSessionAdmin() {
@@ -920,6 +922,7 @@ function ficheDossier(l) {
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLettreConfraternelle(l, lignesSheet) : '') +
     blocStatuts(l) +
+    blocSignatureJse(l, lignesSheet) +
     blocLdmRetour(l, lignesSheet) +
   '</div>';
 }
@@ -1719,6 +1722,7 @@ function blocLDM(l, ligne) {
     '<select id="ldm-sig-' + ligne + '" aria-label="Signataire" onchange="prechargerLDM(' + ligne + ')">' + opts + '</select>' +
     '<button class="btn-rep" onclick="apercuLDM(' + ligne + ', this)">👁 Aperçu</button>' +
     '<button class="btn-envoyer" onclick="genererLDM(' + ligne + ', this)">📄 Télécharger le PDF</button>' +
+    (JSE && JSE.configure ? '<button class="btn-envoyer" onclick="envoyerSignature(' + ligne + ', this)">✍️ Envoyer pour signature</button>' : '') +
     '<span class="maj" role="status" aria-live="polite"></span></div></details>';
 }
 
@@ -1785,16 +1789,28 @@ function moteurLDM() {
 
 // Rafraîchi une fois par session, en arrière-plan : une nouvelle version du
 // modèle déployée sur le serveur est ainsi reprise dès la connexion suivante.
-function chargerMoteurLDM() {
-  if (MOTEUR_LDM_DEMANDE || SESSION.role !== 'associe') return;
-  MOTEUR_LDM_DEMANDE = true;
+// ensuite : appelée une fois le chargement fini (réussi ou non) ; forcer : recharge
+// même si la session l'a déjà fait (moteur gardé d'une version antérieure).
+var MOTEUR_LDM_EN_VOL = false, MOTEUR_LDM_ATTENTE = [];
+function chargerMoteurLDM(ensuite, forcer) {
+  if (typeof ensuite === 'function') MOTEUR_LDM_ATTENTE.push(ensuite);
+  if (SESSION.role !== 'associe') { libererAttenteMoteur(); return; }
+  if (MOTEUR_LDM_EN_VOL) return;
+  if (MOTEUR_LDM_DEMANDE && forcer !== true) { libererAttenteMoteur(); return; }
+  MOTEUR_LDM_DEMANDE = true; MOTEUR_LDM_EN_VOL = true;
   api({ action: 'adminMoteurLDM', email: SESSION.email, token: SESSION.token }, function (r) {
-    if (!r || !r.ok || !r.source) { MOTEUR_LDM_DEMANDE = false; return; }
+    MOTEUR_LDM_EN_VOL = false;
+    if (!r || !r.ok || !r.source) { MOTEUR_LDM_DEMANDE = false; libererAttenteMoteur(); return; }
     try {
       MOTEUR_LDM = construireMoteurLDM(r.source);
       try { localStorage.setItem(CLE_MOTEUR_LDM, JSON.stringify({ email: SESSION.email, version: r.version, source: r.source })); } catch (e) {}
     } catch (e) { console.warn('portail · moteur de lettre de mission illisible', e); }
+    libererAttenteMoteur();
   });
+}
+function libererAttenteMoteur() {
+  var a = MOTEUR_LDM_ATTENTE; MOTEUR_LDM_ATTENTE = [];
+  a.forEach(function (f) { try { f(); } catch (e) { console.warn(e); } });
 }
 
 function genererLDM(ligne, btn) {
@@ -1806,7 +1822,7 @@ function genererLDM(ligne, btn) {
     btn.disabled = false; btn.textContent = '📄 Télécharger le PDF';
     if (res && res.ok && res.pdf) {
       telechargerPdf(res.pdf, res.nom);
-      msg.textContent = '✓ ' + res.nom + ' téléchargé — déposez-le dans Yousign pour signature.';
+      msg.textContent = '✓ ' + res.nom + ' téléchargé' + (JSE && JSE.configure ? '.' : ' — déposez-le dans Yousign pour signature.');
       msg.className = 'maj ok';
     } else {
       msg.textContent = '⚠ ' + ((res && res.error) || 'échec');
@@ -1825,6 +1841,211 @@ function telechargerPdf(b64, nom) {
   a.href = url; a.download = nom;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+}
+
+// ── Signature électronique (jesignexpert) ────────────────────
+// Le portail dépose la lettre en brouillon sur jesignexpert, avec le client comme
+// signataire et ses zones de signature placées ; l'associé la vérifie et l'envoie
+// depuis jesignexpert.com. Le suivi (toutes les 30 min, ou « Vérifier maintenant »)
+// classe le PDF signé et passe la lettre à « SIGNÉE ».
+function ligneDe(ligne) {
+  var l = null;
+  DATA.lignes.some(function (x) { if (x[DATA.iLigne] === ligne) { l = x; return true; } return false; });
+  return l;
+}
+
+function envoyerSignature(ligne, btn) {
+  var msg = btn.parentNode.querySelector('.maj');
+  if (!JSE || !JSE.connecte) { relierJse(msg); return; }
+  var l = ligneDe(ligne) || [], p = paramsLDM(ligne);
+  var signataire = [val(l, 'Prénom'), val(l, 'Nom')].filter(Boolean).join(' ');
+  if (!confirm('Préparer la signature électronique de la lettre de mission ?\n\n' +
+      'Dossier : ' + val(l, 'Dénomination') + '\n' +
+      'Signataire : ' + (signataire || 'nom manquant') + ' — ' + (val(l, 'Email') || 'email manquant') + ' — ' + (val(l, 'Mobile') || 'mobile manquant') + '\n' +
+      'Modèle ' + (p.modele === 'sci' ? 'SCI' : 'général') + ', signée ' + p.signataire + '\n\n' +
+      'La lettre est déposée en brouillon sur jesignexpert : vous la vérifiez, puis vous l\u2019envoyez au client depuis jesignexpert.com.' +
+      (JSE.preprod ? '\n\n(Environnement de test : aucun client réel ne reçoit cette demande.)' : ''))) return;
+  btn.disabled = true;
+  msg.textContent = '⏳ Repérage des zones de signature…'; msg.className = 'maj';
+  encartsLDM(ligne, p).then(function (encarts) {
+    msg.textContent = '⏳ Dépôt de la lettre sur jesignexpert…';
+    p.action = 'adminJseEnvoyer'; p.encarts = encarts;
+    api(p, function (res) {
+      btn.disabled = false;
+      if (res && res.relier) { JSE.connecte = false; relierJse(msg); return; }
+      if (!res || !res.ok) {
+        msg.innerHTML = '⚠ ' + esc((res && res.error) || 'échec') +
+          (res && res.lien ? ' <a href="' + esc(res.lien) + '" target="_blank" rel="noopener">Ouvrir sur jesignexpert</a>' : '');
+        msg.className = 'maj ko'; return;
+      }
+      majLigneJse(ligne, { 'Signature électronique': res.id, 'Statut signature': res.statut, 'Signature demandée le': res.date });
+      msg.innerHTML = '✓ Brouillon déposé : ' + res.encarts + ' zone(s) de signature pour ' + esc(res.signataire) + '. ' +
+        '<a href="' + esc(res.lien) + '" target="_blank" rel="noopener">Ouvrir sur jesignexpert pour l\u2019envoyer</a>';
+      msg.className = 'maj ok';
+      var fiche = btn.closest('.dossier'), bloc = fiche && fiche.querySelector('.sig-jse');
+      var neuf = document.createElement('div');
+      neuf.innerHTML = blocSignatureJse(ligneDe(ligne) || [], ligne, res);
+      if (bloc) bloc.replaceWith(neuf.firstChild);
+      else if (fiche && fiche.querySelector('.ldm-bloc')) fiche.querySelector('.ldm-bloc').before(neuf.firstChild);
+    });
+  });
+}
+
+// Zones de signature du client : mesurées sur l'aperçu de la lettre, fabriqué ici
+// avec les fonctions mêmes du serveur. Un moteur gardé d'une version antérieure ne
+// connaît pas les cadres « sign-client » : il est alors rechargé une fois.
+function encartsLDM(ligne, p) {
+  return new Promise(function (fin) {
+    var essayer = function (recharge) {
+      var m = moteurLDM();
+      if (!m) { if (recharge) { fin([]); return; } chargerMoteurLDM(function () { essayer(true); }); return; }
+      var l = ligneDe(ligne);
+      var col = function (nom) { var i = DATA.idx[nom]; return (l && i !== undefined) ? String(l[i] || '') : ''; };
+      var d = m.donnees(col, p.signataire, new Date().toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }));
+      mesurerSignatures(p.modele === 'sci' ? m.sci(d) : m.generale(d)).then(function (mesures) {
+        if (mesures.length || recharge) { fin(mesures); return; }
+        MOTEUR_LDM = null;
+        try { localStorage.removeItem(CLE_MOTEUR_LDM); } catch (e) {}
+        chargerMoteurLDM(function () { essayer(true); }, true);
+      });
+    };
+    essayer(false);
+  });
+}
+
+// Rend la lettre hors écran à la largeur d'une page A4 (794 px = 595 points) et
+// relève chaque cadre de signature du client, depuis le coin haut-gauche de sa page.
+function mesurerSignatures(html) {
+  return new Promise(function (fin) {
+    var f = document.createElement('iframe'), fait = false;
+    f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
+    f.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;visibility:hidden;';
+    var mesurer = function () {
+      if (fait) return;
+      fait = true;
+      var out = [];
+      try {
+        Array.prototype.forEach.call(f.contentDocument.querySelectorAll('.pg'), function (pg, i) {
+          var r0 = pg.getBoundingClientRect();
+          Array.prototype.forEach.call(pg.querySelectorAll('.sign-client'), function (c) {
+            var r = c.getBoundingClientRect();
+            out.push({ page: i + 1, x: r.left - r0.left, y: r.top - r0.top, l: r.width, h: r.height });
+          });
+        });
+      } catch (e) { console.warn('portail · mesure des zones de signature impossible', e); }
+      f.remove();
+      fin(out);
+    };
+    // Chargement fini, images comprises (logo, signatures) ; la page vide qu'un
+    // iframe charge à son insertion est ignorée.
+    f.onload = function () {
+      var doc = f.contentDocument;
+      if (doc && doc.querySelector('.pg')) mesurer();
+    };
+    // Sans barre de défilement : elle volerait 15 px de largeur, et le texte ne
+    // passerait plus à la ligne comme dans le PDF.
+    f.srcdoc = String(html).replace('</head>', '<style>html,body{overflow:hidden!important;}</style></head>');
+    document.body.appendChild(f);
+    setTimeout(mesurer, 8000);
+  });
+}
+
+// Relier le portail au cabinet : connexion ComptExpert d'un associé, une fois.
+// L'onglet est ouvert pendant le clic (sinon le navigateur le bloque), puis dirigé
+// vers jesignexpert ; cette page attend la fin de la connexion.
+var JSE_ATTENTE = null;
+function relierJse(msg) {
+  if (!JSE || !JSE.configure) { msg.textContent = '⚠ jesignexpert n\u2019est pas encore configuré.'; msg.className = 'maj ko'; return; }
+  var fen = window.open('', '_blank');
+  if (fen === window) fen = null;
+  if (fen) { try { fen.opener = null; fen.document.title = 'Connexion jesignexpert…'; } catch (e) {} }
+  msg.textContent = '⏳ Ouverture de la connexion ComptExpert…'; msg.className = 'maj';
+  api({ action: 'adminJse', etape: 'connecter', email: SESSION.email, token: SESSION.token }, function (res) {
+    if (!res || !res.ok || !res.url) {
+      if (fen) fen.close();
+      msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return;
+    }
+    if (fen && !fen.closed) fen.location.href = res.url;
+    // Onglet bloqué par le navigateur : le lien reste à portée de clic
+    msg.innerHTML = '🔗 Première utilisation : connectez-vous à ComptExpert dans l\u2019onglet ouvert et choisissez le cabinet TEC AUDIT ' +
+      '(<a href="' + esc(res.url) + '" target="_blank" rel="noopener">ouvrir la connexion</a> si l\u2019onglet ne s\u2019est pas ouvert). ' +
+      'Cette page attend la fin de la connexion…';
+    attendreJse(msg, Date.now());
+  });
+}
+function attendreJse(msg, debut) {
+  clearTimeout(JSE_ATTENTE);
+  JSE_ATTENTE = setTimeout(function () {
+    api({ action: 'adminJse', etape: 'terminer', attente: 1, email: SESSION.email, token: SESSION.token }, function (res) {
+      if (res && res.ok && res.jse && res.jse.connecte) {
+        JSE = res.jse;
+        msg.textContent = '✓ jesignexpert relié (cabinet « ' + (JSE.cabinet || 'TEC AUDIT') + ' »). Cliquez à nouveau sur « Envoyer pour signature ».';
+        msg.className = 'maj ok'; return;
+      }
+      if (res && !res.ok) { msg.textContent = '⚠ ' + (res.error || 'échec'); msg.className = 'maj ko'; return; }
+      if (Date.now() - debut > 10 * 60 * 1000) {
+        msg.textContent = '⚠ Connexion non terminée après 10 minutes : recommencez.' + (res && res.detail ? ' (' + res.detail + ')' : '');
+        msg.className = 'maj ko'; return;
+      }
+      attendreJse(msg, debut);
+    });
+  }, 6000);
+}
+
+function majLigneJse(ligne, valeurs) {
+  var l = ligneDe(ligne);
+  if (!l) return;
+  Object.keys(valeurs).forEach(function (c) { if (DATA.idx[c] !== undefined) l[DATA.idx[c]] = valeurs[c]; });
+}
+
+// Statut de la demande sur la fiche (associé et collaborateur du dossier).
+// res : réponse d'un envoi qui vient d'aboutir (colonnes pas encore rechargées).
+function blocSignatureJse(l, ligne, res) {
+  var id = res ? res.id : val(l, 'Signature électronique');
+  if (!id) return '';
+  var statut = res ? res.statut : val(l, 'Statut signature'), le = res ? res.date : val(l, 'Signature demandée le');
+  var lien = res ? res.lien : ((JSE && JSE.extranet) || 'https://ecma-preprod.reeliant.net') + '/extranet/transaction/' + encodeURIComponent(id);
+  return '<div class="actions sig-jse"><b style="color:var(--blue-dark);">Signature électronique</b>' +
+    '<span class="sig-statut">' + esc(statut || '—') + '</span>' +
+    (le ? '<span class="lib">demandée le ' + esc(le) + '</span>' : '') +
+    '<a href="' + esc(lien) + '" target="_blank" rel="noopener">Ouvrir sur jesignexpert</a>' +
+    '<button class="btn-rep" onclick="verifierSignature(' + ligne + ', this)">↻ Vérifier maintenant</button>' +
+    '<span class="maj" role="status" aria-live="polite"></span></div>';
+}
+
+function verifierSignature(ligne, btn) {
+  var bloc = btn.closest('.sig-jse'), msg = bloc.querySelector('.maj');
+  btn.disabled = true; msg.textContent = '⏳ Interrogation de jesignexpert…'; msg.className = 'maj';
+  api({ action: 'adminJseSuivi', email: SESSION.email, token: SESSION.token, ligne: ligne }, function (res) {
+    btn.disabled = false;
+    if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
+    bloc.querySelector('.sig-statut').textContent = res.statut || '—';
+    majLigneJse(ligne, { 'Statut signature': res.statut });
+    msg.textContent = '✓ à jour'; msg.className = 'maj ok';
+    if (res.statutLdm === 'SIGNÉE') {
+      var retour = bloc.parentNode.querySelector('.ldm-bloc select');
+      if (retour) retour.value = 'SIGNÉE';
+      appliquerStatutLdm(ligne, 'SIGNÉE', btn, res.signeeLe);
+      var signee = bloc.parentNode.querySelector('.ldm-bloc .maj');
+      if (signee && res.signeeLe) { signee.textContent = '✓ signée le ' + res.signeeLe; signee.className = 'maj ok'; }
+    }
+  });
+}
+
+// Retour de la connexion ComptExpert (onglet ouvert par « Relier jesignexpert »)
+function retourJse() {
+  if (new URLSearchParams(location.search).get('jse') !== 'retour') return;
+  history.replaceState(null, '', location.pathname);
+  var bandeau = document.createElement('div');
+  bandeau.className = 'alerte';
+  bandeau.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:50;max-width:92vw;';
+  bandeau.textContent = '✓ Connexion à jesignexpert terminée. Vous pouvez fermer cet onglet et revenir à l\u2019espace interne.';
+  document.body.appendChild(bandeau);
+  if (SESSION.token && SESSION.role === 'associe') {
+    api({ action: 'adminJse', etape: 'terminer', attente: 1, email: SESSION.email, token: SESSION.token }, function (res) {
+      if (res && res.ok && res.jse) JSE = res.jse;
+    });
+  }
 }
 
 // Objet social, clôture et régime fiscal ne sont plus exigés du client pendant
@@ -2512,7 +2733,8 @@ function actionEntree(e) {
     return '<div class="entree-act"><b>Étape : lettre de mission</b>' +
       '<div class="lettre-meta">Le dossier <b>' + esc(e.codeDossier) + '</b> est dans la base. ' +
       'Générez la lettre depuis l\'onglet <b>Dossiers</b> (recherchez « ' + esc(e.denomination) + ' »), ' +
-      'puis déposez le PDF dans Yousign pour signature.</div>' +
+      (JSE && JSE.configure ? 'puis envoyez-la en signature (« ✍️ Envoyer pour signature »).</div>'
+                            : 'puis déposez le PDF dans Yousign pour signature.</div>') +
       '<div class="lettre-actions"><button class="btn-rep" onclick="allerAuDossier(\'' +
       escJs(e.denomination) + '\')">→ Ouvrir le dossier</button></div></div>';
   }
@@ -2811,6 +3033,7 @@ document.addEventListener('DOMContentLoaded', function () {
   $('email-oubli').addEventListener('keydown', function (e) { if (e.key === 'Enter') demanderReinit(); });
   $('mdp2').addEventListener('keydown', function (e) { if (e.key === 'Enter') definirMdp(); });
   if (!verifierLienReinit()) restaurerSessionAdmin();   // un lien de réinitialisation prime
+  retourJse();
   $('saisie-email').addEventListener('keydown', function (e) { if (e.key === 'Enter') ouvrirSaisieCabinet('constitution'); });
   ['q'].forEach(function (id) { $(id).addEventListener('input', function () { PAGE = 1; rendre(); }); });
   // Raccourci « / » : focus sur la recherche depuis n'importe où
