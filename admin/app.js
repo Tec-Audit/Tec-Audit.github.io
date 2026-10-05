@@ -1844,10 +1844,10 @@ function telechargerPdf(b64, nom) {
 }
 
 // ── Signature électronique (jesignexpert) ────────────────────
-// Le portail dépose la lettre en brouillon sur jesignexpert, avec le client comme
-// signataire et ses zones de signature placées ; l'associé la vérifie et l'envoie
-// depuis jesignexpert.com. Le suivi (toutes les 30 min, ou « Vérifier maintenant »)
-// classe le PDF signé et passe la lettre à « SIGNÉE ».
+// Le portail dépose la lettre sur jesignexpert, avec le client comme signataire et
+// ses zones de signature placées, puis l'envoie directement au client avec le
+// compte ComptExpert de l'associé (relié une fois). Le suivi (toutes les 30 min,
+// ou « Vérifier maintenant ») classe le PDF signé et passe la lettre à « SIGNÉE ».
 function ligneDe(ligne) {
   var l = null;
   DATA.lignes.some(function (x) { if (x[DATA.iLigne] === ligne) { l = x; return true; } return false; });
@@ -1856,14 +1856,16 @@ function ligneDe(ligne) {
 
 function envoyerSignature(ligne, btn) {
   var msg = btn.parentNode.querySelector('.maj');
+  // Connexions ComptExpert d'abord, pendant le clic (sinon l'onglet serait bloqué)
   if (!JSE || !JSE.connecte) { relierJse(msg); return; }
+  if (!JSE.envoiDirect) { relierJse(msg, 'utilisateur'); return; }
   var l = ligneDe(ligne) || [], p = paramsLDM(ligne);
   var signataire = [val(l, 'Prénom'), val(l, 'Nom')].filter(Boolean).join(' ');
   if (!confirm('Préparer la signature électronique de la lettre de mission ?\n\n' +
       'Dossier : ' + val(l, 'Dénomination') + '\n' +
       'Signataire : ' + (signataire || 'nom manquant') + ' — ' + (val(l, 'Email') || 'email manquant') + ' — ' + (val(l, 'Mobile') || 'mobile manquant') + '\n' +
       'Modèle ' + (p.modele === 'sci' ? 'SCI' : 'général') + ', signée ' + p.signataire + '\n\n' +
-      'La lettre est déposée en brouillon sur jesignexpert : vous la vérifiez, puis vous l\u2019envoyez au client depuis jesignexpert.com.' +
+      'La lettre part directement au client : il reçoit le mail de jesignexpert et signe avec un code reçu par SMS.' +
       (JSE.preprod ? '\n\n(Environnement de test : aucun client réel ne reçoit cette demande.)' : ''))) return;
   btn.disabled = true;
   msg.textContent = '⏳ Repérage des zones de signature…'; msg.className = 'maj';
@@ -1873,15 +1875,24 @@ function envoyerSignature(ligne, btn) {
     api(p, function (res) {
       btn.disabled = false;
       if (res && res.relier) { JSE.connecte = false; relierJse(msg); return; }
+      if (res && res.relierUtilisateur) { JSE.envoiDirect = false; relierJse(msg, 'utilisateur'); return; }
       if (!res || !res.ok) {
         msg.innerHTML = '⚠ ' + esc((res && res.error) || 'échec') +
           (res && res.lien ? ' <a href="' + esc(res.lien) + '" target="_blank" rel="noopener">Ouvrir sur jesignexpert</a>' : '');
         msg.className = 'maj ko'; return;
       }
-      majLigneJse(ligne, { 'Signature électronique': res.id, 'Statut signature': res.statut, 'Signature demandée le': res.date });
-      msg.innerHTML = '✓ Brouillon déposé : ' + res.encarts + ' zone(s) de signature pour ' + esc(res.signataire) + '. ' +
-        '<a href="' + esc(res.lien) + '" target="_blank" rel="noopener">Ouvrir sur jesignexpert pour l\u2019envoyer</a>';
-      msg.className = 'maj ok';
+      majLigneJse(ligne, { 'Signature électronique': res.id, 'Statut signature': res.statut,
+                           'Signature demandée le': res.date, 'Signature expire le': res.expireLe || '' });
+      if (res.envoyee) {
+        msg.innerHTML = '✓ Envoyée à ' + esc(res.signataire) + ' pour signature (' + res.encarts + ' zone(s)) : le client reçoit le mail de jesignexpert.' +
+          (res.expireLe ? ' Délai de signature : ' + esc(res.expireLe) + '.' : '');
+        msg.className = 'maj ok';
+      } else {
+        msg.innerHTML = '⚠ Lettre déposée en brouillon, mais l\u2019envoi automatique a échoué' +
+          (res.avertissement ? ' (' + esc(res.avertissement) + ')' : '') + '. ' +
+          '<a href="' + esc(res.lien) + '" target="_blank" rel="noopener">Ouvrez-la sur jesignexpert pour l\u2019envoyer</a>.';
+        msg.className = 'maj ko';
+      }
       var fiche = btn.closest('.dossier'), bloc = fiche && fiche.querySelector('.sig-jse');
       var neuf = document.createElement('div');
       neuf.innerHTML = blocSignatureJse(ligneDe(ligne) || [], ligne, res);
@@ -1950,36 +1961,42 @@ function mesurerSignatures(html) {
   });
 }
 
-// Relier le portail au cabinet : connexion ComptExpert d'un associé, une fois.
+// Relier le portail à jesignexpert, par connexion ComptExpert :
+//   quoi absent : le cabinet, une fois pour tout le portail ;
+//   quoi « utilisateur » : le compte de l'associé, une fois, pour l'envoi direct.
 // L'onglet est ouvert pendant le clic (sinon le navigateur le bloque), puis dirigé
 // vers jesignexpert ; cette page attend la fin de la connexion.
 var JSE_ATTENTE = null;
-function relierJse(msg) {
+function relierJse(msg, quoi) {
   if (!JSE || !JSE.configure) { msg.textContent = '⚠ jesignexpert n\u2019est pas encore configuré.'; msg.className = 'maj ko'; return; }
   var fen = window.open('', '_blank');
   if (fen === window) fen = null;
   if (fen) { try { fen.opener = null; fen.document.title = 'Connexion jesignexpert…'; } catch (e) {} }
   msg.textContent = '⏳ Ouverture de la connexion ComptExpert…'; msg.className = 'maj';
-  api({ action: 'adminJse', etape: 'connecter', email: SESSION.email, token: SESSION.token }, function (res) {
+  api({ action: 'adminJse', etape: 'connecter', quoi: quoi || '', email: SESSION.email, token: SESSION.token }, function (res) {
     if (!res || !res.ok || !res.url) {
       if (fen) fen.close();
       msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return;
     }
     if (fen && !fen.closed) fen.location.href = res.url;
     // Onglet bloqué par le navigateur : le lien reste à portée de clic
-    msg.innerHTML = '🔗 Première utilisation : connectez-vous à ComptExpert dans l\u2019onglet ouvert et choisissez le cabinet TEC AUDIT ' +
+    msg.innerHTML = (quoi === 'utilisateur'
+        ? '🔗 Envoi direct, première fois pour vous : connectez-vous à ComptExpert avec <b>votre</b> compte dans l\u2019onglet ouvert '
+        : '🔗 Première utilisation : connectez-vous à ComptExpert dans l\u2019onglet ouvert et choisissez le cabinet TEC AUDIT ') +
       '(<a href="' + esc(res.url) + '" target="_blank" rel="noopener">ouvrir la connexion</a> si l\u2019onglet ne s\u2019est pas ouvert). ' +
       'Cette page attend la fin de la connexion…';
-    attendreJse(msg, Date.now());
+    attendreJse(msg, Date.now(), quoi);
   });
 }
-function attendreJse(msg, debut) {
+function attendreJse(msg, debut, quoi) {
   clearTimeout(JSE_ATTENTE);
   JSE_ATTENTE = setTimeout(function () {
-    api({ action: 'adminJse', etape: 'terminer', attente: 1, email: SESSION.email, token: SESSION.token }, function (res) {
-      if (res && res.ok && res.jse && res.jse.connecte) {
+    api({ action: 'adminJse', etape: 'terminer', quoi: quoi || '', attente: 1, email: SESSION.email, token: SESSION.token }, function (res) {
+      if (res && res.ok && res.jse && (quoi === 'utilisateur' ? res.jse.envoiDirect : res.jse.connecte)) {
         JSE = res.jse;
-        msg.textContent = '✓ jesignexpert relié (cabinet « ' + (JSE.cabinet || 'TEC AUDIT') + ' »). Cliquez à nouveau sur « Envoyer pour signature ».';
+        msg.textContent = quoi === 'utilisateur'
+          ? '✓ Envoi direct activé avec le compte jesignexpert ' + (JSE.envoiCompte || '') + '. Cliquez à nouveau sur « Envoyer pour signature ».'
+          : '✓ jesignexpert relié (cabinet « ' + (JSE.cabinet || 'TEC AUDIT') + ' »). Cliquez à nouveau sur « Envoyer pour signature ».';
         msg.className = 'maj ok'; return;
       }
       if (res && !res.ok) { msg.textContent = '⚠ ' + (res.error || 'échec'); msg.className = 'maj ko'; return; }
@@ -1987,7 +2004,7 @@ function attendreJse(msg, debut) {
         msg.textContent = '⚠ Connexion non terminée après 10 minutes : recommencez.' + (res && res.detail ? ' (' + res.detail + ')' : '');
         msg.className = 'maj ko'; return;
       }
-      attendreJse(msg, debut);
+      attendreJse(msg, debut, quoi);
     });
   }, 6000);
 }
@@ -2004,10 +2021,11 @@ function blocSignatureJse(l, ligne, res) {
   var id = res ? res.id : val(l, 'Signature électronique');
   if (!id) return '';
   var statut = res ? res.statut : val(l, 'Statut signature'), le = res ? res.date : val(l, 'Signature demandée le');
+  var expire = res ? res.expireLe : val(l, 'Signature expire le');
   var lien = res ? res.lien : ((JSE && JSE.extranet) || 'https://ecma-preprod.reeliant.net') + '/extranet/transaction/' + encodeURIComponent(id);
   return '<div class="actions sig-jse"><b style="color:var(--blue-dark);">Signature électronique</b>' +
     '<span class="sig-statut">' + esc(statut || '—') + '</span>' +
-    (le ? '<span class="lib">demandée le ' + esc(le) + '</span>' : '') +
+    (le ? '<span class="lib">demandée le ' + esc(le) + (expire && statut === 'En cours de signature' ? ', à signer avant le ' + esc(expire) : '') + '</span>' : '') +
     '<a href="' + esc(lien) + '" target="_blank" rel="noopener">Ouvrir sur jesignexpert</a>' +
     '<button class="btn-rep" onclick="verifierSignature(' + ligne + ', this)">↻ Vérifier maintenant</button>' +
     '<span class="maj" role="status" aria-live="polite"></span></div>';
@@ -2034,7 +2052,9 @@ function verifierSignature(ligne, btn) {
 
 // Retour de la connexion ComptExpert (onglet ouvert par « Relier jesignexpert »)
 function retourJse() {
-  if (new URLSearchParams(location.search).get('jse') !== 'retour') return;
+  var q = new URLSearchParams(location.search);
+  if (q.get('jse') !== 'retour') return;
+  var quoi = q.get('quoi') === 'utilisateur' ? 'utilisateur' : '';
   history.replaceState(null, '', location.pathname);
   var bandeau = document.createElement('div');
   bandeau.className = 'alerte';
@@ -2042,7 +2062,7 @@ function retourJse() {
   bandeau.textContent = '✓ Connexion à jesignexpert terminée. Vous pouvez fermer cet onglet et revenir à l\u2019espace interne.';
   document.body.appendChild(bandeau);
   if (SESSION.token && SESSION.role === 'associe') {
-    api({ action: 'adminJse', etape: 'terminer', attente: 1, email: SESSION.email, token: SESSION.token }, function (res) {
+    api({ action: 'adminJse', etape: 'terminer', quoi: quoi, attente: 1, email: SESSION.email, token: SESSION.token }, function (res) {
       if (res && res.ok && res.jse) JSE = res.jse;
     });
   }
