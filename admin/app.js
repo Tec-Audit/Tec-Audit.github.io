@@ -2022,13 +2022,24 @@ function blocSignatureJse(l, ligne, res) {
   if (!id) return '';
   var statut = res ? res.statut : val(l, 'Statut signature'), le = res ? res.date : val(l, 'Signature demandée le');
   var expire = res ? res.expireLe : val(l, 'Signature expire le');
+  var attestation = res ? '' : val(l, 'Attestation de signature');
   var lien = res ? res.lien : ((JSE && JSE.extranet) || 'https://ecma-preprod.reeliant.net') + '/extranet/transaction/' + encodeURIComponent(id);
   return '<div class="actions sig-jse"><b style="color:var(--blue-dark);">Signature électronique</b>' +
     '<span class="sig-statut">' + esc(statut || '—') + '</span>' +
     (le ? '<span class="lib">demandée le ' + esc(le) + (expire && statut === 'En cours de signature' ? ', à signer avant le ' + esc(expire) : '') + '</span>' : '') +
+    '<span class="lib sig-attestation">' + (statut === 'Signée' ? libelleAttestation(attestation) : '') + '</span>' +
     '<a href="' + esc(lien) + '" target="_blank" rel="noopener">Ouvrir sur jesignexpert</a>' +
     '<button class="btn-rep" onclick="verifierSignature(' + ligne + ', this)">↻ Vérifier maintenant</button>' +
     '<span class="maj" role="status" aria-live="polite"></span></div>';
+}
+
+// « Classée le … » → attestation classée ; « À récupérer (n essais) — erreur » → en attente
+function libelleAttestation(a) {
+  a = String(a || '');
+  if (/^Classée/.test(a)) return 'attestation ' + a.charAt(0).toLowerCase() + a.slice(1);
+  if (/^À récupérer/.test(a)) return 'attestation pas encore disponible';
+  if (/^Indisponible/.test(a)) return 'attestation indisponible';
+  return 'attestation en attente';
 }
 
 function verifierSignature(ligne, btn) {
@@ -2038,7 +2049,9 @@ function verifierSignature(ligne, btn) {
     btn.disabled = false;
     if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
     bloc.querySelector('.sig-statut').textContent = res.statut || '—';
-    majLigneJse(ligne, { 'Statut signature': res.statut });
+    var att = bloc.querySelector('.sig-attestation');
+    if (att) { att.textContent = res.statut === 'Signée' ? libelleAttestation(res.attestation) : ''; att.title = res.attestation || ''; }
+    majLigneJse(ligne, { 'Statut signature': res.statut, 'Attestation de signature': res.attestation || '' });
     msg.textContent = '✓ à jour' + (res.etatJse ? ' (jesignexpert : ' + res.etatJse + ')' : ''); msg.className = 'maj ok';
     if (res.statutLdm === 'SIGNÉE') {
       var retour = bloc.parentNode.querySelector('.ldm-bloc select');
