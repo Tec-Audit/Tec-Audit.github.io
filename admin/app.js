@@ -2021,7 +2021,7 @@ function verifierSignature(ligne, btn) {
     if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
     bloc.querySelector('.sig-statut').textContent = res.statut || '—';
     majLigneJse(ligne, { 'Statut signature': res.statut });
-    msg.textContent = '✓ à jour'; msg.className = 'maj ok';
+    msg.textContent = '✓ à jour' + (res.etatJse ? ' (jesignexpert : ' + res.etatJse + ')' : ''); msg.className = 'maj ok';
     if (res.statutLdm === 'SIGNÉE') {
       var retour = bloc.parentNode.querySelector('.ldm-bloc select');
       if (retour) retour.value = 'SIGNÉE';
