@@ -915,6 +915,7 @@ function ficheDossier(l) {
     (comm ? '<div class="comm">💬 ' + esc(comm) + '</div>' : '') +
     blocPieces(l, lignesSheet) +
     blocCompletude(l, lignesSheet) +
+    blocGed(l, lignesSheet) +
     blocContact(l, lignesSheet) +
     blocInfos(l, lignesSheet) +
     (SESSION.role === 'associe' ? blocHonoraires(l, lignesSheet) : '') +
@@ -978,6 +979,60 @@ function blocPieces(l, ligne) {
         'onchange="deposerPieces(' + ligne + ', this)"></label>' +
       '<span class="maj" role="status" aria-live="polite"></span>' +
     '</div><div class="pieces pieces-dossier" id="pd-' + ligne + '" hidden></div></details>';
+}
+
+// ── GED Pennylane ────────────────────────────────────────────
+// Aperçu d'abord : où va chaque pièce vérifiée, sous quel nom, ce qui est écarté
+// et pourquoi. L'envoi vient ensuite, sur confirmation : Pennylane ne permet pas
+// au portail de retirer un fichier déposé. La correspondance pièce → dossier se
+// règle dans l'onglet « GED » du classeur.
+var ETATS_GED = {
+  prete: ['à envoyer', 'envoyee'], envoyee: ['envoyée', 'ok'], deja: ['déjà dans la GED', 'neutre'],
+  ignoree: ['écartée', 'warn'], introuvable: ['dossier introuvable', 'ko'], ambigu: ['dossier ambigu', 'ko'], erreur: ['erreur', 'ko']
+};
+function blocGed(l, ligne) {
+  var relie = !!val(l, 'Pennylane ID');
+  return '<details class="coord"><summary>GED Pennylane' +
+      (relie ? '' : '<span class="resume">dossier pas encore rattaché à Pennylane</span>') + '</summary>' +
+    '<div class="actions ged-actions"><button class="btn-rep" onclick="apercuGed(' + ligne + ', this)">🔍 Préparer l\u2019envoi</button>' +
+    '<span class="maj" role="status" aria-live="polite"></span></div><div class="ged-plan" hidden></div></details>';
+}
+function apercuGed(ligne, btn) {
+  var bloc = btn.closest('details'), msg = bloc.querySelector('.ged-actions .maj'), zone = bloc.querySelector('.ged-plan');
+  btn.disabled = true; msg.textContent = '⏳ Lecture de la GED du client…'; msg.className = 'maj';
+  api({ action: 'adminGed', email: SESSION.email, token: SESSION.token, ligne: ligne }, function (res) {
+    btn.disabled = false;
+    if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; zone.hidden = true; return; }
+    var n = res.bilan.prete;
+    msg.textContent = n ? n + ' pièce(s) prête(s) à partir.' : 'Rien à envoyer pour l\u2019instant.';
+    msg.className = 'maj' + (n ? ' ok' : '');
+    rendreGed(zone, res, n ? '<button class="btn-envoyer" onclick="envoyerGed(' + ligne + ', this, ' + n + ')">📤 Envoyer ' + n + ' pièce(s) vers la GED</button>' : '');
+  });
+}
+function envoyerGed(ligne, btn, n) {
+  if (!confirm('Envoyer ' + n + ' pièce(s) dans la GED Pennylane de ce client ?\n\nChaque pièce part une seule fois, à la place indiquée. ' +
+      'Le portail ne peut pas retirer un fichier déposé : une erreur se corrige à la main dans Pennylane.')) return;
+  var bloc = btn.closest('details'), msg = bloc.querySelector('.ged-actions .maj'), zone = bloc.querySelector('.ged-plan');
+  btn.disabled = true; msg.textContent = '⏳ Envoi en cours…'; msg.className = 'maj';
+  api({ action: 'adminGed', email: SESSION.email, token: SESSION.token, ligne: ligne, envoyer: 1 }, function (res) {
+    if (!res || !res.ok) { btn.disabled = false; msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
+    var b = res.bilan, alerte = b.introuvable + b.ambigu + b.erreur;
+    msg.textContent = '✓ ' + b.envoyee + ' pièce(s) envoyée(s)' + (alerte ? ' — ' + alerte + ' à régler (détail ci-dessous)' : '') + '.';
+    msg.className = 'maj ' + (alerte ? 'ko' : 'ok');
+    rendreGed(zone, res, '');
+  });
+}
+function rendreGed(zone, res, action) {
+  zone.innerHTML = '<table class="ged-table"><thead><tr><th>Pièce</th><th>Destination</th><th>Nom dans la GED</th><th>État</th></tr></thead><tbody>' +
+    res.plan.map(function (e) {
+      var et = ETATS_GED[e.etat] || [e.etat, 'neutre'];
+      return '<tr><td>' + esc(e.libelle) + (e.personne ? '<div class="c2">' + esc(e.personne) + '</div>' : '') + '</td>' +
+        '<td>' + esc(e.destination || '—') + '</td><td>' + esc(e.nom || '—') + '</td>' +
+        '<td><span class="tag ' + et[1] + '">' + esc(et[0]) + '</span>' + (e.detail ? '<div class="c2">' + esc(e.detail) + '</div>' : '') + '</td></tr>';
+    }).join('') + '</tbody></table>' +
+    (res.plan.length ? '' : '<p class="c2">Aucune pièce vérifiée avec un fichier, ni lettre signée, dans ce dossier.</p>') +
+    (action ? '<div class="actions">' + action + '</div>' : '');
+  zone.hidden = false;
 }
 
 // Liste des pièces d'une ligne de la base. Chargée à la première ouverture
