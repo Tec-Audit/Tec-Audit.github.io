@@ -1633,9 +1633,16 @@ function ibanValideFront(iban) {
 }
 function resumeBanque(l) {
   var iban = String(val(l, 'IBAN') || '').replace(/\s/g, '');
-  if (!iban) return val(l, 'Mandat SEPA signé le') ? 'mandat SEPA du ' + val(l, 'Mandat SEPA signé le') + ', IBAN à recopier' : 'non renseignées';
-  return 'IBAN ' + iban.slice(0, 4) + ' •••• ' + iban.slice(-4);
+  var signe = val(l, 'Mandat SEPA signé le'), statut = val(l, 'Mandat SEPA — statut');
+  if (!iban) {
+    if (statut === MANDAT_DEMANDE) return 'IBAN demandé au client le ' + val(l, 'Mandat SEPA — envoyé le');
+    return signe ? 'mandat SEPA du ' + signe + ', IBAN à recopier' : 'non renseignées';
+  }
+  return 'IBAN ' + iban.slice(0, 4) + ' •••• ' + iban.slice(-4) +
+    (signe ? ' · mandat signé le ' + signe : (statut ? ' · mandat : ' + statut.toLowerCase() : ''));
 }
+// Statut du mandat quand le cabinet attend l'IBAN du client (même libellé que le serveur)
+var MANDAT_DEMANDE = 'IBAN demandé au client';
 function blocBanque(l, ligne) {
   return '<details class="coord"><summary>Coordonnées bancaires<span class="resume">' + esc(resumeBanque(l)) + '</span></summary>' +
     '<div class="actions banque">' +
@@ -1646,8 +1653,58 @@ function blocBanque(l, ligne) {
       '<button class="btn-rep" onclick="enregistrerBanque(' + ligne + ', this)">Enregistrer</button>' +
       '<span class="maj" id="iban-maj-' + ligne + '" role="status" aria-live="polite"></span>' +
     '</div>' +
-    '<div class="lettre-meta" style="margin-top:4px;">À recopier depuis le mandat SEPA de la lettre de mission signée. ' +
-      'Un IBAN valide marque la pièce « RIB de la société » comme vérifiée.</div></details>';
+    '<div class="lettre-meta" style="margin-top:4px;">Saisies par le client (formulaire ou espace client) ou par le cabinet. ' +
+      'Connu à l\u2019envoi de la lettre de mission, l\u2019IBAN pré-remplit son mandat SEPA ; sinon le mandat part à part. ' +
+      'Un IBAN saisi ici marque la pièce « RIB de la société » comme vérifiée.</div>' +
+    blocMandatSepa(l, ligne) + '</details>';
+}
+
+// ── Mandat de prélèvement SEPA envoyé seul ──
+// IBAN connu : le mandat pré-rempli part en signature électronique. IBAN inconnu : le
+// client reçoit un lien vers son espace pour le saisir ; le mandat part ensuite seul.
+function blocMandatSepa(l, ligne) {
+  var statut = val(l, 'Mandat SEPA — statut'), id = val(l, 'Mandat SEPA — collecte'), signe = val(l, 'Mandat SEPA signé le');
+  var lien = id ? ((JSE && JSE.extranet) || 'https://ecma-preprod.reeliant.net') + '/extranet/transaction/' + encodeURIComponent(id) : '';
+  var etat = signe ? 'signé le ' + signe : (statut ? statut + (val(l, 'Mandat SEPA — envoyé le') ? ' (le ' + val(l, 'Mandat SEPA — envoyé le') + ')' : '') : 'pas encore envoyé');
+  return '<div class="actions sig-jse mandat-sepa"><b style="color:var(--blue-dark);">Mandat SEPA</b>' +
+    '<span class="sig-statut">' + esc(etat) + '</span>' +
+    (lien ? '<a href="' + esc(lien) + '" target="_blank" rel="noopener">Ouvrir sur jesignexpert</a>' : '') +
+    (JSE && JSE.configure ? '<button class="btn-envoyer" onclick="envoyerMandatSepa(' + ligne + ', this)">📨 Envoyer le mandat SEPA</button>' : '') +
+    '<span class="maj" role="status" aria-live="polite"></span></div>';
+}
+
+function envoyerMandatSepa(ligne, btn) {
+  var bloc = btn.closest('.mandat-sepa'), msg = bloc.querySelector('.maj');
+  var l = ligneDe(ligne) || [], ibanConnu = ibanValideFront(val(l, 'IBAN'));
+  // Connexions ComptExpert d'abord, pendant le clic (sinon l'onglet serait bloqué)
+  if (!JSE || !JSE.connecte) { relierJse(msg); return; }
+  if (ibanConnu && !JSE.envoiDirect) { relierJse(msg, 'utilisateur'); return; }
+  var qui = [val(l, 'Prénom'), val(l, 'Nom')].filter(Boolean).join(' ') || 'le dirigeant';
+  if (!confirm(ibanConnu
+      ? 'Envoyer à ' + qui + ' (' + (val(l, 'Email') || 'email manquant') + ') le mandat de prélèvement SEPA, pré-rempli avec l\u2019IBAN de la fiche, pour signature électronique ?'
+      : 'L\u2019IBAN n\u2019est pas connu. ' + qui + ' (' + (val(l, 'Email') || 'email manquant') + ') va recevoir un lien vers son espace client pour saisir ses coordonnées bancaires ; ' +
+        'le mandat pré-rempli lui sera ensuite envoyé pour signature, automatiquement. Continuer ?')) return;
+  btn.disabled = true; msg.textContent = '⏳ …'; msg.className = 'maj';
+  api({ action: 'adminMandatSepa', email: SESSION.email, token: SESSION.token, ligne: ligne }, function (res) {
+    btn.disabled = false;
+    if (res && res.relier) { JSE.connecte = false; relierJse(msg); return; }
+    if (res && res.relierUtilisateur) { JSE.envoiDirect = false; relierJse(msg, 'utilisateur'); return; }
+    if (!res || !res.ok) {
+      msg.innerHTML = '⚠ ' + esc((res && res.error) || 'échec') +
+        (res && res.lien ? ' <a href="' + esc(res.lien) + '" target="_blank" rel="noopener">Ouvrir sur jesignexpert</a>' : '');
+      msg.className = 'maj ko'; return;
+    }
+    var maj = { 'Mandat SEPA — statut': res.statut, 'Mandat SEPA — envoyé le': res.date || '' };
+    if (res.id) maj['Mandat SEPA — collecte'] = res.id;
+    majLigneJse(ligne, maj);
+    bloc.querySelector('.sig-statut').textContent = res.statut + (res.date ? ' (le ' + res.date + ')' : '');
+    if (res.demande) { msg.textContent = '✓ ' + res.message; msg.className = 'maj ok'; return; }
+    msg.innerHTML = res.envoyee
+      ? '✓ Mandat envoyé à ' + esc(res.signataire) + ' pour signature : il reçoit le mail de jesignexpert.'
+      : '⚠ Mandat déposé en brouillon, mais l\u2019envoi automatique a échoué' + (res.avertissement ? ' (' + esc(res.avertissement) + ')' : '') +
+        '. <a href="' + esc(res.lien) + '" target="_blank" rel="noopener">Ouvrez-le sur jesignexpert pour l\u2019envoyer</a>.';
+    msg.className = 'maj ' + (res.envoyee ? 'ok' : 'ko');
+  });
 }
 function controlerIban(ligne) {
   var champ = $('iban-' + ligne), msg = $('iban-maj-' + ligne), v = champ.value.replace(/\s/g, '');
@@ -1995,7 +2052,7 @@ function mesurerSignatures(html) {
           var r0 = pg.getBoundingClientRect();
           Array.prototype.forEach.call(pg.querySelectorAll('.sign-client'), function (c) {
             var r = c.getBoundingClientRect();
-            out.push({ page: i + 1, x: r.left - r0.left, y: r.top - r0.top, l: r.width, h: r.height });
+            out.push({ page: i + 1, zone: c.getAttribute('data-zone') || '', x: r.left - r0.left, y: r.top - r0.top, l: r.width, h: r.height });
           });
         });
       } catch (e) { console.warn('portail · mesure des zones de signature impossible', e); }

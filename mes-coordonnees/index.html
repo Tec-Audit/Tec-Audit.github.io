@@ -41,6 +41,16 @@
   .soc-tete { background:var(--blue-light); padding:11px 16px; font-size:14px; font-weight:700; color:var(--blue-dark); display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; }
   .soc-tete span { font-size:11.5px; font-weight:500; color:var(--muted); }
   .soc-corps { padding:16px; display:grid; grid-template-columns:1fr 1fr; gap:13px 16px; }
+  .banque { border-top:1px dashed var(--border); padding:14px 16px 16px; }
+  .banque-titre { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--blue-dark); margin-bottom:6px; }
+  .banque p { font-size:13px; color:var(--muted); line-height:1.6; margin:0 0 10px; }
+  .banque .demande { background:#fff3e0; color:#b45309; border-radius:4px; padding:8px 11px; font-size:12.5px; margin-bottom:10px; }
+  .banque .grille { display:grid; grid-template-columns:2fr 1fr auto; gap:10px; align-items:end; }
+  .banque .btn { width:auto; padding:10px 16px; white-space:nowrap; }
+  .banque .msg { font-size:12.5px; margin-top:8px; line-height:1.5; }
+  .banque .msg.ok { color:#2e7d32; } .banque .msg.ko { color:#c0392b; }
+  .banque .fait { color:#2e7d32; font-size:13px; }
+  @media (max-width:640px) { .banque .grille { grid-template-columns:1fr; } }
   @media (max-width:640px){ .soc-corps { grid-template-columns:1fr; } }
   .gc2 { grid-column:span 2; }
   @media (max-width:640px){ .gc2 { grid-column:span 1; } }
@@ -663,13 +673,91 @@ function rendre(){
           : '<input type="' + c[1] + '" id="' + id + '" value="' + v + '">';
         return '<div class="f' + (c[2]==='gc2' ? ' gc2':'') + '"><label for="' + id + '">' + esc(c[0]) + '</label>' + champ + '</div>';
       }).join('') + '</div>' +
+      blocBanque(d, n) +
       '<div class="manques" id="mq-' + n + '" data-code="' + esc(d['Code dossier'] || '') + '" hidden></div></div>';
   }).join('');
+  // Arrivée par le lien du cabinet (?banque=code) : droit aux coordonnées bancaires
+  var cible = new URLSearchParams(location.search).get('banque');
+  if (cible) DOSSIERS.forEach(function (d, n) {
+    if (d['Code dossier'] !== cible || !$('ib-' + n)) return;
+    setTimeout(function () { $('bq-' + n).scrollIntoView({ behavior: 'smooth', block: 'center' }); $('ib-' + n).focus(); }, 300);
+  });
   $('etat').textContent = DOSSIERS.length + ' dossier' + (DOSSIERS.length>1?'s':'') + ' rattaché' + (DOSSIERS.length>1?'s':'') + ' à ' + SESSION.email;
+}
+
+// ── Coordonnées bancaires : le cabinet fonctionne par prélèvement SEPA ──
+function blocBanque(d, n) {
+  var b = d.banque || {};
+  var tete = '<div class="banque" id="bq-' + n + '"><div class="banque-titre">Coordonnées bancaires</div>';
+  if (b.mandatSigneLe) {
+    return tete + '<div class="fait">✓ Mandat de prélèvement SEPA signé le ' + esc(b.mandatSigneLe) + (b.iban ? ' — compte ' + esc(b.iban) : '') + '.</div></div>';
+  }
+  if (b.enCours) {
+    return tete + '<p>Votre mandat de prélèvement SEPA vous a été envoyé par email (expéditeur jesignexpert, la plateforme de signature ' +
+      'de la profession comptable ; pensez à vérifier vos courriers indésirables). Il reste à le signer, avec le code reçu par SMS.</p></div>';
+  }
+  return tete +
+    (b.demande ? '<div class="demande">Votre expert-comptable attend ces coordonnées pour vous adresser le mandat de prélèvement.</div>' : '') +
+    '<p>Pour le règlement de ses honoraires, TEC AUDIT fonctionne par <strong>prélèvement SEPA</strong>. Indiquez les coordonnées du ' +
+    'compte professionnel de la société : le mandat de prélèvement, pré-rempli, vous sera adressé pour signature en ligne.' +
+    (b.iban ? ' Compte déjà enregistré : <strong>' + esc(b.iban) + '</strong> — vous pouvez le remplacer.' : '') + '</p>' +
+    '<div class="grille">' +
+      '<div class="f" style="margin:0;"><label for="ib-' + n + '">IBAN du compte professionnel</label>' +
+        '<input type="text" id="ib-' + n + '" autocomplete="off" spellcheck="false" placeholder="FR76 …" oninput="controlerIbanClient(' + n + ')"></div>' +
+      '<div class="f" style="margin:0;"><label for="bc-' + n + '">BIC <span style="text-transform:none;font-weight:400;">(facultatif)</span></label>' +
+        '<input type="text" id="bc-' + n + '" autocomplete="off" spellcheck="false" placeholder="BNPAFRPPXXX"></div>' +
+      '<button class="btn" onclick="enregistrerBanque(' + n + ', this)">Enregistrer</button>' +
+    '</div><div class="msg" id="bm-' + n + '" role="status" aria-live="polite"></div></div>';
+}
+// IBAN : format et clé de contrôle (norme ISO 13616, modulo 97)
+function ibanValide(iban) {
+  var s = String(iban || '').replace(/\s/g, '').toUpperCase();
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(s)) return false;
+  if (s.indexOf('FR') === 0 && s.length !== 27) return false;
+  var r = s.slice(4) + s.slice(0, 4), reste = 0;
+  for (var i = 0; i < r.length; i++) {
+    var c = r.charCodeAt(i), v = c >= 65 ? String(c - 55) : r[i];
+    for (var j = 0; j < v.length; j++) reste = (reste * 10 + (+v[j])) % 97;
+  }
+  return reste === 1;
+}
+function controlerIbanClient(n) {
+  var champ = $('ib-' + n), msg = $('bm-' + n), v = champ.value.replace(/\s/g, '');
+  if (v.length < 15) { msg.textContent = ''; champ.style.borderColor = ''; return; }
+  var ok = ibanValide(v);
+  champ.style.borderColor = ok ? '#2e7d32' : '#c0392b';
+  msg.textContent = ok ? '✓ IBAN valide' : '⚠ IBAN incorrect : vérifiez la saisie.';
+  msg.className = 'msg ' + (ok ? 'ok' : 'ko');
+}
+function enregistrerBanque(n, btn) {
+  var msg = $('bm-' + n), iban = $('ib-' + n).value, bic = $('bc-' + n).value;
+  if (!ibanValide(iban)) { msg.textContent = '⚠ IBAN incorrect : vérifiez la saisie (27 caractères pour un compte français).'; msg.className = 'msg ko'; return; }
+  btn.disabled = true; msg.textContent = 'Enregistrement…'; msg.className = 'msg';
+  api({ action: 'maBanque', email: SESSION.email, token: SESSION.token, ligne: DOSSIERS[n].ligne, iban: iban, bic: bic }, function (res) {
+    btn.disabled = false;
+    if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'Enregistrement impossible.'); msg.className = 'msg ko'; return; }
+    DOSSIERS[n].banque = DOSSIERS[n].banque || {};
+    DOSSIERS[n].banque.iban = res.iban;
+    $('ib-' + n).value = ''; $('bc-' + n).value = '';
+    if (res.mandat === 'envoye') {
+      DOSSIERS[n].banque.enCours = true; DOSSIERS[n].banque.demande = false;
+      $('bq-' + n).outerHTML = blocBanque(DOSSIERS[n], n);
+      return;
+    }
+    msg.textContent = res.mandat === 'cabinet'
+      ? '✓ Merci, vos coordonnées sont enregistrées (' + res.iban + '). Le cabinet vous adressera le mandat à signer.'
+      : '✓ Merci, vos coordonnées sont enregistrées (' + res.iban + '). Elles figureront dans le mandat de prélèvement joint à votre lettre de mission.';
+    msg.className = 'msg ok';
+  });
 }
 
 function enregistrer(){
   var btn = $('btn-save');
+  // Un IBAN saisi n'est pas perdu si le client clique sur le bouton général
+  DOSSIERS.forEach(function (d, n) {
+    var ib = $('ib-' + n);
+    if (ib && ib.value.trim()) enregistrerBanque(n, $('bq-' + n).querySelector('.btn'));
+  });
   btn.disabled = true; btn.textContent = 'Enregistrement…';
   var majs = DOSSIERS.map(function(d, n){
     var o = { ligne: d.ligne };

@@ -445,6 +445,22 @@
           <input type="number" id="m-ca" min="0" placeholder="Ex : 250 000"></div>
       </div>
 
+      <div class="field" style="margin:18px 0 6px;">
+        <label>Règlement des honoraires <span class="note">(facultatif)</span></label>
+        <p style="font-size:13px;color:var(--muted);line-height:1.6;margin:0 0 10px;">
+          TEC AUDIT fonctionne par <strong>prélèvement SEPA</strong> pour le règlement de ses honoraires. Si vous les avez
+          sous la main, indiquez les coordonnées du compte professionnel : elles seront pré-remplies dans le mandat de
+          prélèvement joint à votre lettre de mission. Vous pourrez aussi les communiquer plus tard, depuis votre espace client.
+        </p>
+      </div>
+      <div class="grid g2">
+        <div class="field"><label for="iban">IBAN du compte professionnel</label>
+          <input type="text" id="iban" autocomplete="off" spellcheck="false" placeholder="FR76 …" oninput="controlerIban()">
+          <div id="iban-msg" style="font-size:12px;margin-top:5px;"></div></div>
+        <div class="field"><label for="bic">BIC <span class="note">(facultatif)</span></label>
+          <input type="text" id="bic" autocomplete="off" spellcheck="false" placeholder="Ex : BNPAFRPPXXX"></div>
+      </div>
+
       <div class="notice">
         Sur la base de ces informations, nous vous adresserons une <strong>lettre de mission</strong> détaillant
         prestations et honoraires. Elle prendra effet après l'accomplissement des formalités déontologiques
@@ -1091,6 +1107,35 @@ function onAutreChange() {
 // ══════════════════════════════════════════════════════════════
 //  Sauvegarde / reprise (clé : email + parcours)
 // ══════════════════════════════════════════════════════════════
+// ── IBAN (facultatif) : clé de contrôle ISO 13616 (modulo 97), jamais bloquant ──
+function ibanValide(iban) {
+  var s = String(iban || '').replace(/\s/g, '').toUpperCase();
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(s)) return false;
+  if (s.indexOf('FR') === 0 && s.length !== 27) return false;
+  var r = s.slice(4) + s.slice(0, 4), reste = 0;
+  for (var i = 0; i < r.length; i++) {
+    var c = r.charCodeAt(i), x = c >= 65 ? String(c - 55) : r[i];
+    for (var j = 0; j < x.length; j++) reste = (reste * 10 + (+x[j])) % 97;
+  }
+  return reste === 1;
+}
+function controlerIban() {
+  var champ = document.getElementById('iban'), msg = document.getElementById('iban-msg');
+  var s = champ.value.replace(/\s/g, '');
+  if (s.length < 15) { msg.textContent = ''; champ.style.borderColor = ''; return; }
+  var ok = ibanValide(s);
+  champ.style.borderColor = ok ? '#2e7d32' : '#c0392b';
+  msg.style.color = ok ? '#2e7d32' : '#c0392b';
+  msg.textContent = ok ? '✓ IBAN valide' : '⚠ IBAN incorrect : vérifiez la saisie, ou laissez le champ vide et communiquez-le plus tard.';
+}
+// Résumé masqué (récapitulatif, PDF, synthèse) : seuls le pays et les 4 derniers caractères
+function ibanResume() {
+  var s = (document.getElementById('iban').value || '').replace(/\s/g, '').toUpperCase();
+  if (!s) return 'Coordonnées bancaires à communiquer plus tard';
+  if (!ibanValide(s)) return 'IBAN saisi incorrect (à redemander)';
+  return 'IBAN ' + s.slice(0, 4) + ' ···· ' + s.slice(-4);
+}
+
 function collecterDossier() {
   var data = {};
   document.querySelectorAll('input[id], select[id], textarea[id]').forEach(function (el) {
@@ -1207,6 +1252,7 @@ function buildSummary() {
   html += sec('Mission souhaitée');
   html += row('Prestations', missionsChoisies().join(' · ') || '—');
   html += row('Rythme', v('m-periodicite')) + row('CA annuel approx.', v('m-ca') !== '—' ? v('m-ca') + ' € HT' : '—');
+  html += row('Prélèvement SEPA', ibanResume());
   html += sec('Pièces jointes');
   toutesPieces().forEach(function (p) {
     var input = document.getElementById('file-' + p.id);
@@ -1265,6 +1311,7 @@ function generateRecapPDF() {
   ligne('Logiciel actuel', v('logiciel')); ligne('Début souhaité', v('date-reprise'));
   titre('Mission souhaitée');
   ligne('Prestations', missionsChoisies().join(', ')); ligne('Rythme', v('m-periodicite')); ligne('CA annuel', v('m-ca'));
+  ligne('Prélèvement SEPA', ibanResume());
   return doc.output('blob');
 }
 
@@ -1344,6 +1391,7 @@ function validerFormulaire() {
   add('Logiciel actuel', v('logiciel')); add('Début souhaité', v('date-reprise'));
   add('Mission souhaitée', missionsChoisies().join(' · '));
   add('Rythme', v('m-periodicite')); add('CA annuel approx.', v('m-ca'));
+  add('Prélèvement SEPA', ibanResume());
 
   // ── Envoi : allègement des photos, contrôle du volume, suivi visible ──
   var pieces = TecPieces.piecesDe(toutesPieces().map(function (p) {
