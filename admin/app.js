@@ -2711,8 +2711,9 @@ function carteEntree(e) {
       '<b>' + (s.fait ? '✓' : (s.alerte ? '!' : i + 1)) + '</b>' + esc(s.nom) + '</span>';
   }).join('') + '</div>';
 
-  var meta = 'Reçu le ' + esc(e.date) + ' · ' + esc(e.contact || e.email) +
-    ' · ' + (e.parcours === 'nouveau-client' ? 'Nouveau client / reprise' : 'Constitution') +
+  var meta = (e.horsPortail ? 'Lettre confraternelle ajoutée le ' + esc(e.date) + ' · dossier déjà en base, hors formulaire'
+                            : 'Reçu le ' + esc(e.date) + ' · ' + esc(e.contact || e.email) +
+                              ' · ' + (e.parcours === 'nouveau-client' ? 'Nouveau client / reprise' : 'Constitution')) +
     (e.pennylane === 'oui' ? ' · <span class="tag warn">déjà sur Pennylane — transfert à demander</span>'
       : e.pennylane === 'non' ? ' · <span class="tag neutre">dossier Pennylane à créer</span>' : '') +
     (e.saisiPar ? ' · <span class="tag neutre">saisi par le cabinet — ' + esc(e.saisiPar) + '</span>' : '') +
@@ -2775,7 +2776,8 @@ function actionEntree(e) {
   // Lettre de mission envoyée, retour du client attendu
   if (c.attente && c.signature) {
     return '<div class="entree-act"><b>En attente de la lettre de mission signée</b>' +
-      '<div class="lettre-meta">Générée le ' + esc(e.ldm) + '. Dès son retour, enregistrez-la depuis la fiche ' +
+      '<div class="lettre-meta">' + (e.horsPortail ? 'Lettre de mission antérieure au portail.' : 'Générée le ' + esc(e.ldm) + '.') +
+      ' Dès son retour, enregistrez-la depuis la fiche ' +
       'du dossier <b>' + esc(e.codeDossier) + '</b> (bouton « LDM signée reçue ») : le dossier passera en terminé.</div>' +
       '<div class="lettre-actions"><button class="btn-rep" onclick="allerAuDossier(\'' +
       escJs(e.denomination) + '\')">→ Ouvrir le dossier</button></div></div>';
