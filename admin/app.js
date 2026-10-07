@@ -944,7 +944,84 @@ function blocStatuts(l) {
     '<button class="btn-envoyer" onclick="preparerStatuts(\'' + escJs(code) + '\', this)">' +
     'Préparer et envoyer au secrétariat</button>' +
     '<span class="maj" role="status" aria-live="polite"></span></div>' +
-    '<div class="statuts-res"></div></details>';
+    '<div class="statuts-res"></div>' +
+    blocSignatureStatuts(l, code) + '</details>';
+}
+
+// ── Signature électronique des statuts (après le dépôt du capital) ──
+function blocSignatureStatuts(l, code) {
+  var ligne = l[DATA.iLigne], st = val(l, 'Statuts — statut'), signes = val(l, 'Statuts signés le');
+  return '<div class="statuts-sig" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:10px;">' +
+    '<div class="lettre-meta"><b>Signature électronique</b> — <span class="statuts-etat">' +
+      (signes ? '✓ statuts signés le ' + esc(signes) : st ? esc(st) : 'une fois le capital déposé et le projet finalisé, chaque signataire le signe en ligne (jesignexpert).') +
+    '</span></div>' +
+    '<div class="lettre-actions">' +
+      '<button class="btn-rep" onclick="apercuSignatureStatuts(\'' + escJs(code) + '\', this)">✍️ Préparer la signature</button>' +
+      (st && !signes ? '<button class="btn-rep" onclick="verifierSignatureStatuts(' + ligne + ', this)">↻ Vérifier maintenant</button>' : '') +
+      '<span class="maj" role="status" aria-live="polite"></span></div>' +
+    '<div class="statuts-sig-plan"></div></div>';
+}
+
+function apercuSignatureStatuts(code, btn) {
+  var bloc = btn.closest('.statuts-sig'), msg = bloc.querySelector('.maj'), zone = bloc.querySelector('.statuts-sig-plan');
+  btn.disabled = true; msg.textContent = 'Lecture du dossier…'; msg.className = 'maj'; zone.innerHTML = '';
+  api({ action: 'adminStatutsSignature', email: SESSION.email, token: SESSION.token, code: code }, function (r) {
+    btn.disabled = false;
+    if (!r || !r.ok) { msg.textContent = '⚠ ' + ((r && r.error) || 'échec'); msg.className = 'maj ko'; return; }
+    msg.textContent = '';
+    var complets = r.signataires.every(function (s) { return !s.manque.length; });
+    zone.innerHTML =
+      (r.enCours ? '<div class="lettre-meta" style="color:#b45309;">⚠ Une signature est déjà en cours (' + esc(r.enCours.statut) +
+        '). Un nouvel envoi la remplacera : annulez d\'abord l\'ancienne sur <a href="' + esc(r.enCours.lien) + '" target="_blank" rel="noopener">jesignexpert</a>.</div>' : '') +
+      '<div class="lettre-meta">Document envoyé : <a href="' + esc(r.document.url) + '" target="_blank" rel="noopener">' + esc(r.document.nom) + '</a>' +
+        ' (modifié le ' + esc(r.document.maj) + '), avec une page de signatures ajoutée à la fin.</div>' +
+      '<table class="ged-table" style="margin-top:8px;"><thead><tr><th>Signataire</th><th>Email</th><th>Mobile</th></tr></thead><tbody>' +
+      r.signataires.map(function (s, i) {
+        return '<tr data-i="' + i + '"><td><b>' + esc((s.prenom + ' ' + s.nom).trim() || '?') + '</b><br><small>' + esc(s.qualite) + '</small>' +
+          (s.manque.length ? '<br><small style="color:#c0392b;">à compléter : ' + esc(s.manque.join(', ')) + '</small>' : '') + '</td>' +
+          '<td><input type="email" class="sig-email" value="' + esc(s.email) + '" style="width:100%;"></td>' +
+          '<td><input type="tel" class="sig-tel" value="' + esc(s.tel) + '" style="width:130px;"></td></tr>';
+      }).join('') + '</tbody></table>' +
+      '<div class="lettre-meta">Chaque signataire reçoit son invitation de jesignexpert et signe avec un code reçu par SMS. ' +
+        'Coût : ' + r.signataires.length + ' × 0,30 € = ' + String(r.cout.toFixed(2)).replace('.', ',') + ' € HT.' +
+        (complets ? '' : ' Complétez les emails et mobiles manquants ci-dessus.') + '</div>' +
+      '<div class="lettre-actions"><button class="btn-envoyer" onclick="envoyerSignatureStatuts(\'' + escJs(code) + '\', this, ' +
+        (r.enCours ? 'true' : 'false') + ')">✍️ Envoyer en signature à ' + r.signataires.length + ' signataire' + (r.signataires.length > 1 ? 's' : '') + '</button>' +
+      '<span class="maj" role="status" aria-live="polite"></span></div>';
+  });
+}
+
+function envoyerSignatureStatuts(code, btn, remplacer) {
+  var zone = btn.closest('.statuts-sig-plan'), msg = btn.parentNode.querySelector('.maj');
+  var sigs = Array.prototype.map.call(zone.querySelectorAll('tbody tr'), function (tr) {
+    return { email: tr.querySelector('.sig-email').value.trim(), tel: tr.querySelector('.sig-tel').value.trim() };
+  });
+  if (!confirm('Envoyer les statuts en signature à ' + sigs.length + ' signataire' + (sigs.length > 1 ? 's' : '') +
+      ' ?\n\nChacun recevra un email de jesignexpert avec le document à signer.')) return;
+  btn.disabled = true; btn.textContent = 'Envoi…'; msg.textContent = ''; msg.className = 'maj';
+  api({ action: 'adminStatutsSignature', email: SESSION.email, token: SESSION.token, code: code, envoyer: 1,
+        signataires: sigs, remplacer: remplacer ? 1 : 0 }, function (r) {
+    btn.disabled = false; btn.textContent = '✍️ Envoyer en signature';
+    if (!r || !r.ok) { msg.textContent = '⚠ ' + ((r && r.error) || 'échec'); msg.className = 'maj ko'; return; }
+    var bloc = btn.closest('.statuts-sig');
+    bloc.querySelector('.statuts-etat').textContent = r.statut;
+    zone.innerHTML = '<div class="lettre-meta" style="color:' + (r.envoyee ? '#2e7d32' : '#b45309') + ';">' +
+      (r.envoyee ? '✓ Envoyés à ' + r.signataires + ' signataire' + (r.signataires > 1 ? 's' : '') + '. Le portail suit la signature et rangera les statuts signés dans la checklist.'
+                 : '⚠ Déposés en brouillon sur jesignexpert : ' + esc(r.avertissement || 'aucun compte jesignexpert relié pour l\'envoi') +
+                   '. Un associé peut l\'envoyer depuis <a href="' + esc(r.lien) + '" target="_blank" rel="noopener">jesignexpert</a>.') + '</div>';
+  });
+}
+
+function verifierSignatureStatuts(ligne, btn) {
+  var bloc = btn.closest('.statuts-sig'), msg = bloc.querySelector('.maj');
+  btn.disabled = true; msg.textContent = 'Interrogation de jesignexpert…'; msg.className = 'maj';
+  api({ action: 'adminJseSuivi', email: SESSION.email, token: SESSION.token, ligne: ligne }, function (r) {
+    btn.disabled = false;
+    if (!r || !r.ok) { msg.textContent = '⚠ ' + ((r && r.error) || 'échec'); msg.className = 'maj ko'; return; }
+    var s = r.statuts || {};
+    bloc.querySelector('.statuts-etat').textContent = s.signesLe ? '✓ statuts signés le ' + s.signesLe : (s.statut || '—');
+    msg.textContent = s.signesLe ? '✓ rangés dans la checklist' : 'à jour'; msg.className = 'maj ok';
+  });
 }
 
 function preparerStatuts(code, btn) {
@@ -1111,9 +1188,9 @@ function chargerCompletude(ligne, det, forcer) {
   });
 }
 
-var LIBELLE_PHASE = { 'soumission': 'À la soumission', 'statuts-signes': 'Documents à signer', 'depot-capital': 'Dépôt du capital',
+var LIBELLE_PHASE = { 'soumission': 'À la soumission', 'statuts-signes': 'Signature des statuts', 'depot-capital': 'Dépôt du capital',
                       'siren-definitif': 'Après immatriculation', 'ldm-signee': 'Après la lettre de mission signée' };
-var ORDRE_PHASES = ['soumission', 'statuts-signes', 'depot-capital', 'siren-definitif', 'ldm-signee'];
+var ORDRE_PHASES = ['soumission', 'depot-capital', 'statuts-signes', 'siren-definitif', 'ldm-signee'];
 
 function classeStatut(st) {
   if (st === 'attendue') return 'attendue';
@@ -2722,7 +2799,15 @@ function etapes(e) {
   }
   var prealableOk = !e.confrere || repriseOk;
   l.push({ nom: 'Dossier créé', fait: !!e.codeDossier, action: (!e.codeDossier && prealableOk) ? 'dossier' : null });
-  l.push({ nom: 'Lettre de mission', fait: !!e.ldm, action: (e.codeDossier && !e.ldm) ? 'ldm' : null });
+  // Constitution : statuts et immatriculation (secrétariat juridique) avant la lettre de mission
+  var k = e.constitution;
+  if (e.parcours === 'constitution' && !e.horsPortail) {
+    var statutsOk = !!(k && k.statutsSignes), immatOk = !!(k && k.siret);
+    l.push({ nom: 'Statuts signés', fait: statutsOk || immatOk, attente: !!e.codeDossier && !statutsOk && !immatOk, juridique: true });
+    l.push({ nom: 'Immatriculation', fait: immatOk, attente: !!e.codeDossier && statutsOk && !immatOk, juridique: true });
+  }
+  var ldmPossible = e.codeDossier && (e.parcours !== 'constitution' || e.horsPortail || (k && k.siret));
+  l.push({ nom: 'Lettre de mission', fait: !!e.ldm, action: (ldmPossible && !e.ldm) ? 'ldm' : null });
   // « Générée » et « signée » sont deux choses différentes : le statut vient de la
   // fiche du dossier, pas de la date de génération.
   var st2 = String(e.statutLdm || '').toUpperCase();
@@ -2773,7 +2858,7 @@ function rendreEntrees() {
       ? groupe('📥 Demandes de constitution', aTraiter.concat(enAttente), 'Un associé crée le dossier ; ' +
           'vous pouvez consulter et télécharger les pièces dès l\u2019arrivée de la demande.') + groupeTermines(termines)
       : groupe('🔴 À traiter', aTraiter, 'Ces dossiers attendent une action de votre part.') +
-        groupe('🟠 En attente', enAttente, 'Délai confraternel de 15 jours, ou lettre de mission envoyée dont le retour signé se fait attendre.') +
+        groupe('🟠 En attente', enAttente, 'Délai confraternel de 15 jours, constitution en cours au secrétariat juridique, ou lettre de mission envoyée dont le retour signé se fait attendre.') +
         groupeTermines(termines);
   } catch (e) {
     console.error('rendreEntrees', e);
@@ -2891,6 +2976,15 @@ function actionEntree(e) {
   if (c.alerte) {
     return '<div class="entree-act"><b style="color:#c0392b;">Le confrère a émis une objection</b>' +
       '<div class="lettre-meta">À traiter avec le client avant d\'aller plus loin (honoraires impayés, litige…).</div></div>';
+  }
+
+  // Constitution en cours au secrétariat juridique
+  if (c.attente && c.juridique) {
+    return '<div class="entree-act"><b>Constitution en cours : ' + esc(c.nom.toLowerCase()) + '</b>' +
+      '<div class="lettre-meta">Suivie par le secrétariat juridique sur la fiche du dossier <b>' + esc(e.codeDossier) + '</b>. ' +
+      'La lettre de mission viendra après l\'immatriculation, une fois le SIRET saisi.</div>' +
+      '<div class="lettre-actions"><button class="btn-rep" onclick="allerAuDossier(\'' +
+      escJs(e.denomination) + '\')">→ Ouvrir le dossier</button></div></div>';
   }
 
   // Lettre de mission envoyée, retour du client attendu
