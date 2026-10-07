@@ -2268,6 +2268,11 @@ function blocCompleter(l, ligne) {
   // réclame pas après coup des informations pour les 700 dossiers de l'ancienne base.
   var signaler = /^Portail/.test(val(l, 'Source'));
   var out = '';
+  // Société créée par le cabinet : le SIRET arrive avec l'immatriculation. Il ouvre la
+  // demande du Kbis et du RIB, et permet de retrouver la société dans Pennylane.
+  if (signaler && !val(l, 'SIRET')) {
+    out += champCompleter(ligne, 'SIRET', 'SIRET (dès l\u2019immatriculation)', '', null, false);
+  }
   if (!val(l, 'Activité')) {
     out += champCompleter(ligne, 'Activité', 'Objet social / activité', '', null, signaler);
   }
