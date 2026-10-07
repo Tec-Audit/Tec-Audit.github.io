@@ -2770,7 +2770,7 @@ function rendreEntrees() {
   try {
     html = SESSION.role === 'juridique'
       // Secrétariat juridique : les demandes de constitution, sans les étapes réservées aux associés
-      ? groupe('📥 Demandes de constitution', aTraiter.concat(enAttente), 'Les associés créent le dossier et envoient la lettre de mission ; ' +
+      ? groupe('📥 Demandes de constitution', aTraiter.concat(enAttente), 'Un associé crée le dossier ; ' +
           'vous pouvez consulter et télécharger les pièces dès l\u2019arrivée de la demande.') + groupeTermines(termines)
       : groupe('🔴 À traiter', aTraiter, 'Ces dossiers attendent une action de votre part.') +
         groupe('🟠 En attente', enAttente, 'Délai confraternel de 15 jours, ou lettre de mission envoyée dont le retour signé se fait attendre.') +
