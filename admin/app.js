@@ -1203,6 +1203,8 @@ function demanderPiece(ligne, code, btn) {
   var lib = $('dl-lib-' + ligne).value.trim(), msg = btn.parentNode.querySelector('.maj');
   if (!lib) { msg.textContent = '⚠ Indiquez le document demandé.'; msg.className = 'maj ko'; $('dl-lib-' + ligne).focus(); return; }
   var prevenir = $('dl-prev-' + ligne).checked;
+  // Comme « Relancer maintenant » : rien ne part chez le client sans confirmation
+  if (prevenir && !confirm('Ajouter « ' + lib + ' » et prévenir le client maintenant par email ?')) return;
   btn.disabled = true; btn.textContent = prevenir ? 'Ajout et envoi…' : 'Ajout…';
   api({ action: 'adminDemandePiece', email: SESSION.email, token: SESSION.token, code: code, libelle: lib,
         personne: $('dl-pers-' + ligne).value.trim(), message: $('dl-msg-' + ligne).value.trim(), prevenir: prevenir }, function (res) {
