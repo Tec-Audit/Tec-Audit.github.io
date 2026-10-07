@@ -917,7 +917,7 @@ function ficheDossier(l) {
     (comm ? '<div class="comm">💬 ' + esc(comm) + '</div>' : '') +
     blocPieces(l, lignesSheet) +
     blocCompletude(l, lignesSheet) +
-    (SESSION.role === 'juridique' ? '' : blocGed(l, lignesSheet)) +
+    blocGed(l, lignesSheet) +
     blocContact(l, lignesSheet) +
     blocInfos(l, lignesSheet) +
     (SESSION.role === 'associe' ? blocHonoraires(l, lignesSheet) : '') +
