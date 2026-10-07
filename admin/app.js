@@ -17,7 +17,7 @@ var PAGE = 1, PAR_PAGE = 50;
 var ACTIONS_REJOUABLES = ['adminDossiers', 'adminEntrees', 'adminIncomplets', 'adminPennylane', 'adminPieces',
   'adminPiecesDossier', 'adminCompletude', 'adminFichier', 'adminApercuLettre', 'adminTexteLettre',
   'adminUpdate', 'adminHonoraires', 'adminMajContact', 'adminRythmeRelance', 'adminStatutLdm', 'adminStatutPiece',
-  'adminMoteurLDM'];
+  'adminMoteurLDM', 'adminZipPieces'];
 function rejouable(payload) {
   return ACTIONS_REJOUABLES.indexOf(payload.action) > -1 || (payload.action === 'adminLDM' && payload.apercu);
 }
@@ -299,18 +299,20 @@ function ouvrirApp() {
   $('login-screen').style.display = 'none';
   $('app').style.display = 'flex';
   $('user-nom').textContent = SESSION.nom;
-  $('user-role').textContent = SESSION.role === 'associe' ? 'Associé' : 'Collaborateur';
+  $('user-role').textContent = { associe: 'Associé', juridique: 'Juridique' }[SESSION.role] || 'Collaborateur';
   if (SESSION.role === 'associe') {
     $('tab-entrees').style.display = '';
     $('tab-pennylane').style.display = '';
     $('btn-saisie').style.display = '';   // saisie pour un client : acte d'associé
   } else {
     $('btn-saisie').style.display = 'none';
+    // Secrétariat juridique : les demandes de constitution dès leur arrivée, en lecture
+    if (SESSION.role === 'juridique') $('tab-entrees').style.display = '';
   }
   chargerDossiers(function () {
     // Apps Script exécute les requêtes d'un même utilisateur l'une après l'autre :
     // lancer le compteur en parallèle ferait attendre la liste des dossiers.
-    if (SESSION.role === 'associe') chargerEntrees(true);
+    if (SESSION.role === 'associe' || SESSION.role === 'juridique') chargerEntrees(true);
   });
 }
 
@@ -915,7 +917,7 @@ function ficheDossier(l) {
     (comm ? '<div class="comm">💬 ' + esc(comm) + '</div>' : '') +
     blocPieces(l, lignesSheet) +
     blocCompletude(l, lignesSheet) +
-    blocGed(l, lignesSheet) +
+    (SESSION.role === 'juridique' ? '' : blocGed(l, lignesSheet)) +
     blocContact(l, lignesSheet) +
     blocInfos(l, lignesSheet) +
     (SESSION.role === 'associe' ? blocHonoraires(l, lignesSheet) : '') +
@@ -923,8 +925,7 @@ function ficheDossier(l) {
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLettreConfraternelle(l, lignesSheet) : '') +
     blocStatuts(l) +
-    blocSignatureJse(l, lignesSheet) +
-    blocLdmRetour(l, lignesSheet) +
+    (SESSION.role === 'juridique' ? '' : blocSignatureJse(l, lignesSheet) + blocLdmRetour(l, lignesSheet)) +
   '</div>';
 }
 
@@ -977,6 +978,8 @@ function blocPieces(l, ligne) {
       '<label class="btn-rep" style="cursor:pointer;">➕ Ajouter des documents' +
         '<input type="file" id="up-' + ligne + '" multiple accept="image/*,.pdf" style="display:none;" ' +
         'onchange="deposerPieces(' + ligne + ', this)"></label>' +
+      (val(l, 'Code dossier') ? '<button class="btn-rep" onclick="telechargerZip({ code: \'' + escJs(val(l, 'Code dossier')) + '\' }, this)" ' +
+        'title="Toutes les pièces, renommées « AAAA-MM-JJ Objet Personne »">⬇ Tout télécharger (.zip)</button>' : '') +
       '<span class="maj" role="status" aria-live="polite"></span>' +
     '</div><div class="pieces pieces-dossier" id="pd-' + ligne + '" hidden></div></details>';
 }
@@ -1058,7 +1061,7 @@ function chargerPieces(ligne, det, forcer) {
 }
 
 // Rendu commun aux deux listes (fiche dossier et pipeline)
-function listePiecesHtml(fichiers) {
+function listePiecesHtml(fichiers, lectureSeule) {
   if (!fichiers || !fichiers.length) {
     return '<span class="maj">Aucune pièce dans ce dossier pour le moment.</span>';
   }
@@ -1074,7 +1077,7 @@ function listePiecesHtml(fichiers) {
         '<button class="piece-act" onclick="apercuPiece(\'' + f.id + '\', this)"' +
           (voir ? '' : ' disabled title="Aperçu indisponible pour ce format"') + '>👁 Aperçu</button>' +
         '<button class="piece-act" onclick="telechargerPiece(\'' + f.id + '\', this)">↓ Télécharger</button>' +
-        '<button class="piece-act" title="Mettre à la corbeille" onclick="supprimerFichier(\'' + f.id + '\', this)">🗑</button>' +
+        (lectureSeule ? '' : '<button class="piece-act" title="Mettre à la corbeille" onclick="supprimerFichier(\'' + f.id + '\', this)">🗑</button>') +
       '</div>';
     }).join('');
 }
@@ -1133,7 +1136,7 @@ function rendreCompletude(r, ligne) {
     '<button class="btn-rep" onclick="genererCompletude(' + ligne + ', this)" title="Ajoute les éléments manquants selon les règles">↻ Compléter</button>' +
     '<span class="maj" role="status" aria-live="polite"></span></div>';
 
-  h += blocRelances(r, ligne);
+  h += blocRelances(r, ligne) + blocDemandeLibre(r.code, ligne);
 
   ORDRE_PHASES.forEach(function (ph) {
     var lignes = r.lignes.filter(function (l) { return l.phase === ph; });
@@ -1170,6 +1173,7 @@ function rendreCompletude(r, ligne) {
         '<span>' + (l.type === 'demarche' ? '📌' : '📄') + '</span>' +
         '<span class="cp-lib">' + esc(l.libelle) + (l.personne ? ' — <b>' + esc(l.personne) + '</b>' : '') +
         (l.verdict ? '<small>' + esc(l.verdict) + '</small>' : '') +
+        (l.message && l.statut === 'attendue' ? '<small class="cp-msg">Dit au client : ' + esc(l.message) + '</small>' : '') +
         (l.recuLe && !l.verifiePar ? '<small>reçue le ' + esc(l.recuLe) + '</small>' : '') +
         (l.verifiePar ? '<small>' + esc(l.statut) + ' par ' + esc(l.verifiePar) + ' le ' + esc(l.verifieLe) + '</small>' : '') +
         '</span>' +
@@ -1179,6 +1183,38 @@ function rendreCompletude(r, ligne) {
     h += '</div>';
   });
   return h;
+}
+
+// ── Demande sur mesure : un document hors checklist, demandé au client ──
+function blocDemandeLibre(code, ligne) {
+  return '<details class="cp-demande"><summary>➕ Demander un document au client</summary>' +
+    '<div class="cp-demande-corps">' +
+      '<input type="text" id="dl-lib-' + ligne + '" maxlength="140" placeholder="Document demandé — ex. Attestation d\'hébergement du siège">' +
+      '<input type="text" id="dl-pers-' + ligne + '" maxlength="80" placeholder="Personne concernée (facultatif)">' +
+      '<textarea id="dl-msg-' + ligne + '" rows="2" maxlength="300" placeholder="Précision pour le client (facultatif) — ex. signée par le propriétaire, avec sa pièce d\'identité"></textarea>' +
+      '<label class="cp-demande-prev"><input type="checkbox" id="dl-prev-' + ligne + '" checked> Prévenir le client maintenant par email</label>' +
+      '<div class="lettre-actions"><button class="btn-envoyer" onclick="demanderPiece(' + ligne + ', \'' + escJs(code) + '\', this)">Ajouter la demande</button>' +
+      '<span class="maj" role="status" aria-live="polite"></span></div>' +
+    '</div></details>';
+}
+
+function demanderPiece(ligne, code, btn) {
+  var lib = $('dl-lib-' + ligne).value.trim(), msg = btn.parentNode.querySelector('.maj');
+  if (!lib) { msg.textContent = '⚠ Indiquez le document demandé.'; msg.className = 'maj ko'; $('dl-lib-' + ligne).focus(); return; }
+  var prevenir = $('dl-prev-' + ligne).checked;
+  btn.disabled = true; btn.textContent = prevenir ? 'Ajout et envoi…' : 'Ajout…';
+  api({ action: 'adminDemandePiece', email: SESSION.email, token: SESSION.token, code: code, libelle: lib,
+        personne: $('dl-pers-' + ligne).value.trim(), message: $('dl-msg-' + ligne).value.trim(), prevenir: prevenir }, function (res) {
+    btn.disabled = false; btn.textContent = 'Ajouter la demande';
+    if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
+    var zone = $('cp-' + ligne);
+    zone.innerHTML = rendreCompletude(res, ligne);
+    var m = zone.querySelector('.cp-resume .maj');
+    if (m) {
+      m.textContent = '✓ « ' + res.ajoutee + ' » ajouté' + (prevenir ? (res.envois ? ', client prévenu par email.' : ' (aucun email : relances en mode blanc ou adresse manquante).') : '.');
+      m.className = 'maj ok';
+    }
+  });
 }
 
 // ── Relances : rythme du dossier, état, envoi manuel ──────────
@@ -1239,8 +1275,14 @@ function genererCompletude(ligne, btn) {
 
 function statutPiece(ligne, code, lignePiece, statut, btn) {
   var msg = btn.closest('.completude').querySelector('.maj');
+  // Redemander : le motif est dit au client, dans son espace et dans la relance
+  var motif = '';
+  if (statut === 'attendue') {
+    motif = prompt('Motif communiqué au client (facultatif) — ex. « carte d\'identité expirée », « verso manquant » :', '');
+    if (motif === null) return;
+  }
   btn.disabled = true;
-  api({ action: 'adminStatutPiece', email: SESSION.email, token: SESSION.token, code: code, ligne: lignePiece, statut: statut }, function (res) {
+  api({ action: 'adminStatutPiece', email: SESSION.email, token: SESSION.token, code: code, ligne: lignePiece, statut: statut, motif: motif }, function (res) {
     if (!res || !res.ok) { btn.disabled = false; msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
     var zone = $('cp-' + ligne);
     if (res.lignes) zone.innerHTML = rendreCompletude(res, ligne); else chargerCompletude(ligne, null, true);
@@ -2650,6 +2692,8 @@ function majOngletEntrees() {
   if (!t) return;
   var n = (ENTREES.entrees || []).filter(function (e) {
     var c = etapeCourante(e);
+    // Juridique : le compteur dit les demandes pas encore devenues dossier
+    if (e.lectureSeule) return !e.codeDossier;
     return c && (c.action || c.alerte);
   }).length;
   t.textContent = 'Nouveaux dossiers' + (n ? ' (' + n + ')' : '');
@@ -2716,9 +2760,13 @@ function rendreEntrees() {
 
   var html;
   try {
-    html = groupe('🔴 À traiter', aTraiter, 'Ces dossiers attendent une action de votre part.') +
-      groupe('🟠 En attente', enAttente, 'Délai confraternel de 15 jours, ou lettre de mission envoyée dont le retour signé se fait attendre.') +
-      groupeTermines(termines);
+    html = SESSION.role === 'juridique'
+      // Secrétariat juridique : les demandes de constitution, sans les étapes réservées aux associés
+      ? groupe('📥 Demandes de constitution', aTraiter.concat(enAttente), 'Les associés créent le dossier et envoient la lettre de mission ; ' +
+          'vous pouvez consulter et télécharger les pièces dès l\u2019arrivée de la demande.') + groupeTermines(termines)
+      : groupe('🔴 À traiter', aTraiter, 'Ces dossiers attendent une action de votre part.') +
+        groupe('🟠 En attente', enAttente, 'Délai confraternel de 15 jours, ou lettre de mission envoyée dont le retour signé se fait attendre.') +
+        groupeTermines(termines);
   } catch (e) {
     console.error('rendreEntrees', e);
     html = '<div class="alerte">⚠ Affichage impossible : ' + esc(e.message) + '. Rechargez la page ; si cela persiste, prévenez Emmanuel.</div>';
@@ -2786,6 +2834,13 @@ function carteEntree(e) {
 }
 
 function actionEntree(e) {
+  if (e.lectureSeule) {
+    return '<div class="entree-act">' + (e.codeDossier
+      ? '<b>Dossier ' + esc(e.codeDossier) + ' créé</b><div class="lettre-meta">Pièces, checklist, relances et statuts : sur la fiche du dossier.</div>' +
+        '<div class="lettre-actions"><button class="btn-rep" onclick="allerAuDossier(\'' + escJs(e.denomination) + '\')">→ Ouvrir le dossier</button></div>'
+      : '<b>En attente de création du dossier par un associé</b><div class="lettre-meta">Les pièces déposées sont consultables dès maintenant ' +
+        '(📎 pièces jointes). La checklist et les relances s\'ouvrent avec le dossier.</div>') + '</div>';
+  }
   var c = etapeCourante(e);
   // Message de fin : il dit ce qui s'est réellement passé, pas un texte figé.
   if (!c) {
@@ -2902,7 +2957,34 @@ function voirPieces(url, btn) {
   zone.innerHTML = '<span class="maj">Chargement des pièces…</span>';
   api({ action: 'adminPieces', email: SESSION.email, token: SESSION.token, url: url }, function (res) {
     if (!res || !res.ok) { zone.innerHTML = '<span class="maj ko">⚠ ' + esc((res && res.error) || 'erreur') + '</span>'; return; }
-    zone.innerHTML = listePiecesHtml(res.fichiers);
+    var denom = (btn.closest('.entree').querySelector('strong') || {}).textContent || '';
+    zone.innerHTML = (res.fichiers && res.fichiers.length > 1
+      ? '<div class="lettre-actions" style="margin:4px 0 6px;"><button class="btn-rep" onclick="telechargerZip({ url: \'' + escJs(url) +
+        '\', denomination: \'' + escJs(denom) + '\' }, this)">⬇ Tout télécharger (.zip)</button><span class="maj" role="status" aria-live="polite"></span></div>' : '') +
+      listePiecesHtml(res.fichiers, SESSION.role !== 'associe');
+  });
+}
+
+// Toutes les pièces d'un dossier (code) ou d'une demande (url) en un zip
+function telechargerZip(cible, btn) {
+  var msg = btn.parentNode.querySelector('.maj');
+  var texte = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Préparation du zip…';
+  if (msg) { msg.textContent = ''; msg.className = 'maj'; }
+  api({ action: 'adminZipPieces', email: SESSION.email, token: SESSION.token, code: cible.code || '',
+        url: cible.url || '', denomination: cible.denomination || '' }, function (res) {
+    btn.disabled = false; btn.textContent = texte;
+    if (!res || !res.ok) { if (msg) { msg.textContent = '⚠ ' + ((res && res.error) || 'zip impossible'); msg.className = 'maj ko'; } return; }
+    var octets = atob(res.donnees), tab = new Uint8Array(octets.length);
+    for (var i = 0; i < octets.length; i++) tab[i] = octets.charCodeAt(i);
+    var url = URL.createObjectURL(new Blob([tab], { type: 'application/zip' }));
+    enregistrer(url, res.nom);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    if (msg) {
+      msg.textContent = '✓ ' + res.nb + ' pièce' + (res.nb > 1 ? 's' : '') + ' dans le zip' +
+        (res.ecartes && res.ecartes.length ? ' — à télécharger à part : ' + res.ecartes.join(', ') : '');
+      msg.className = 'maj ' + (res.ecartes && res.ecartes.length ? 'ko' : 'ok');
+    }
   });
 }
 

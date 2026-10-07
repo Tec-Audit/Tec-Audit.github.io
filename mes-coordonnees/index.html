@@ -601,6 +601,7 @@ function rendreManques(d) {
         : '<button class="dem-pdf" style="white-space:nowrap;" onclick="demarcheFaite(\'' + escJs(d.code) + '\', ' + m.ligne + ', this)">✓ C\'est fait</button>';
       return '<div class="mq-lig"><span>' + (m.type === 'piece' ? '📄' : '📌') + '</span>' +
         '<div class="mq-lib">' + esc(m.libelle) + (m.personne ? ' — <b>' + esc(m.personne) + '</b>' : '') +
+        (m.message ? '<div class="mq-aide" style="color:#b45309;">' + esc(m.message) + '</div>' : '') +
         (m.aide ? '<div class="mq-aide">' + esc(m.aide) + '</div>' : '') + '</div>' + action +
         '<div class="mq-msg"></div></div>';
     }).join('');
