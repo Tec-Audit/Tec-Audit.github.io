@@ -996,7 +996,7 @@ var ETATS_GED = {
 function blocGed(l, ligne) {
   var relie = !!val(l, 'Pennylane ID');
   return '<details class="coord"><summary>GED Pennylane' +
-      (relie ? '' : '<span class="resume">dossier pas encore rattaché à Pennylane</span>') + '</summary>' +
+      (relie ? '' : '<span class="resume">pas encore rattaché : le portail cherchera la société par son SIREN</span>') + '</summary>' +
     '<div class="actions ged-actions"><button class="btn-rep" onclick="apercuGed(' + ligne + ', this)">🔍 Préparer l\u2019envoi</button>' +
     '<span class="maj" role="status" aria-live="polite"></span></div><div class="ged-plan" hidden></div></details>';
 }
@@ -1007,7 +1007,8 @@ function apercuGed(ligne, btn) {
     btn.disabled = false;
     if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; zone.hidden = true; return; }
     var n = res.bilan.prete;
-    msg.textContent = n ? n + ' pièce(s) prête(s) à partir.' : 'Rien à envoyer pour l\u2019instant.';
+    msg.textContent = (res.rattache ? '🔗 Rattaché à « ' + res.rattache.nom + ' » dans Pennylane (même SIREN). ' : '') +
+      (n ? n + ' pièce(s) prête(s) à partir.' : 'Rien à envoyer pour l\u2019instant.');
     msg.className = 'maj' + (n ? ' ok' : '');
     rendreGed(zone, res, n ? '<button class="btn-envoyer" onclick="envoyerGed(' + ligne + ', this, ' + n + ')">📤 Envoyer ' + n + ' pièce(s) vers la GED</button>' : '');
   });
