@@ -109,6 +109,18 @@
                  background:#f7f9fc; border:1px solid var(--border); border-radius:4px; padding:8px 11px; margin-bottom:10px; }
   .cp-relances select { font:inherit; font-size:12px; padding:3px 6px; border:1px solid var(--border); border-radius:4px; }
   .cp-msg { display:block; color:#b45309 !important; }
+  .dm-section { margin-top:12px; display:flex; flex-direction:column; gap:8px; }
+  .dm-grille { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:8px 12px; }
+  .dm-champ { display:flex; flex-direction:column; gap:2px; font-size:11px; color:var(--muted); min-width:0; }
+  .dm-champ input, .dm-champ select, .dm-champ textarea { font:inherit; font-size:12.5px; color:var(--text); padding:5px 7px; border:1px solid var(--border); border-radius:4px; width:100%; }
+  .dm-large { grid-column:1 / -1; }
+  .dm-ligne { display:flex; flex-wrap:wrap; gap:8px 10px; align-items:flex-end; padding:8px; background:#f7f9fc; border:1px solid var(--border); border-radius:6px; }
+  .dm-ligne .dm-champ { flex:1 1 140px; }
+  .dm-num { font-weight:700; color:var(--blue-dark); align-self:center; }
+  .dm-info { font-size:12.5px; align-self:center; }
+  .pieces-groupe { margin-top:8px; }
+  .pieces-groupe-titre { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); margin:6px 0 4px; }
+  .acte-depot select { font:inherit; font-size:12px; padding:4px 6px; border:1px solid var(--border); border-radius:4px; max-width:100%; }
   .cp-demande { margin:8px 0 10px; font-size:12.5px; }
   .cp-demande summary { cursor:pointer; color:var(--blue-dark); font-weight:600; }
   .cp-demande-corps { display:grid; grid-template-columns:2fr 1fr; gap:8px; margin-top:8px; }
@@ -500,6 +512,6 @@ label.remise input{border-color:#e0c96a;background:#fffdf5;}
   </div>
 </div>
 
-<script src="app.js?v=20261007f"></script>
+<script src="app.js?v=20261012a"></script>
 </body>
 </html>

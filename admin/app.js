@@ -924,6 +924,7 @@ function ficheDossier(l) {
     (SESSION.role === 'associe' ? blocBanque(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLDM(l, lignesSheet) : '') +
     (SESSION.role === 'associe' ? blocLettreConfraternelle(l, lignesSheet) : '') +
+    blocDemande(l) +
     blocStatuts(l) +
     (SESSION.role === 'juridique' ? '' : blocSignatureJse(l, lignesSheet) + blocLdmRetour(l, lignesSheet)) +
   '</div>';
@@ -948,10 +949,134 @@ function blocStatuts(l) {
     blocSignatureStatuts(l, code) + '</details>';
 }
 
+// ── Corriger la demande d'une constitution : forme, dénomination, associés… ──
+// La demande alimente le projet de statuts et la checklist : la corriger ici les
+// remet d'aplomb (la fiche suit, sauf une valeur déjà modifiée à la main).
+function blocDemande(l) {
+  var code = val(l, 'Code dossier');
+  if (!code || !/^Portail — constitution/.test(val(l, 'Source'))) return '';
+  return '<details class="coord" ontoggle="chargerDemande(\'' + escJs(code) + '\', this)"><summary>Corriger la demande du client</summary>' +
+    '<div class="demande-zone"></div></details>';
+}
+
+function chargerDemande(code, det, forcer) {
+  if (!det.open && !forcer) return;
+  var zone = det.querySelector('.demande-zone');
+  if (zone.dataset.charge === '1' && !forcer) return;
+  zone.dataset.charge = '1';
+  zone.innerHTML = '<span class="maj">Chargement de la demande…</span>';
+  api({ action: 'adminDemande', email: SESSION.email, token: SESSION.token, code: code }, function (r) {
+    if (!r || !r.ok) { zone.dataset.charge = '0'; zone.innerHTML = '<span class="maj ko">⚠ ' + esc((r && r.error) || 'erreur') + '</span>'; return; }
+    zone.innerHTML = formulaireDemande(r, code);
+    // Forme changée : les fonctions possibles du dirigeant changent avec elle
+    var forme = zone.querySelector('[data-bloc="societe"] [data-cle="forme"]');
+    forme.addEventListener('change', function () {
+      var permises = ['SAS', 'SASU', 'SELAS'].indexOf(forme.value) > -1 ? ['president', 'dg'] : forme.value === 'EI' ? ['entrepreneur'] : ['gerant'];
+      zone.querySelectorAll('[data-bloc="dirigeants"] [data-cle="fonction"]').forEach(function (sel) {
+        var garde = permises.indexOf(sel.value) > -1 ? sel.value : permises[0];
+        sel.innerHTML = permises.map(function (f) { return '<option value="' + f + '"' + (f === garde ? ' selected' : '') + '>' + esc(r.fonctions[f]) + '</option>'; }).join('');
+      });
+    });
+  });
+}
+
+function formulaireDemande(r, code) {
+  var D = r.demande, so = D.societe;
+  var champ = function (cle, lib, val, attrs) {
+    return '<label class="dm-champ"><span>' + esc(lib) + '</span><input data-cle="' + cle + '" value="' + esc(val) + '"' + (attrs || '') + '></label>';
+  };
+  var liste = function (cle, lib, val, opts) {
+    return '<label class="dm-champ"><span>' + esc(lib) + '</span><select data-cle="' + cle + '">' + opts.map(function (o) {
+      var v = Array.isArray(o) ? o[0] : o, t = Array.isArray(o) ? o[1] : o;
+      return '<option value="' + esc(v) + '"' + (v === val ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select></label>';
+  };
+  var fonctions = function (forme) {
+    if (forme === 'EI') return ['entrepreneur'];
+    return ['SAS', 'SASU', 'SELAS'].indexOf(forme) > -1 ? ['president', 'dg'] : ['gerant'];
+  };
+  var h = '<div class="lettre-meta">Ces informations viennent du formulaire du client : elles servent au projet de statuts et à la liste des pièces. ' +
+    'Corrigez seulement ce qui est faux ; chaque correction est notée au Journal.</div>' +
+    '<div class="dm-section" data-bloc="societe"><b>Société</b><div class="dm-grille">' +
+      champ('denomination', 'Dénomination', so.denomination) + champ('sigle', 'Sigle', so.sigle) +
+      liste('forme', 'Forme', so.forme, r.formes) + champ('capital', 'Capital (€)', so.capital, ' inputmode="decimal"') +
+      liste('cloture', 'Clôture', so.cloture, [['', '—']].concat(r.mois)) + champ('cloture1', 'Première clôture', so.cloture1, ' type="date"') +
+      liste('domiciliation', 'Siège', so.domiciliation, [['fiducys', 'Chez TEC AUDIT'], ['gerant', 'Chez le dirigeant'], ['autre', 'Autre adresse']]) +
+      champ('adresse', 'Adresse du siège', so.adresse) + champ('cp', 'Code postal', so.cp) + champ('ville', 'Ville', so.ville) +
+    '</div><label class="dm-champ dm-large"><span>Objet social</span><textarea data-cle="objet" rows="3">' + esc(so.objet) + '</textarea></label></div>';
+  h += '<div class="dm-section" data-bloc="associes"><b>Associés</b>' + D.associes.map(function (a, i) {
+    var morale = a.type === 'morale';
+    return '<div class="dm-ligne" data-i="' + i + '"><span class="dm-num">' + (i + 1) + '</span>' +
+      (morale ? champ('denomination', 'Société associée', a.denomination) + champ('rep-prenom', 'Représentant — prénom', a['rep-prenom']) +
+                champ('rep-nom', 'Représentant — nom', a['rep-nom'])
+              : champ('prenom', 'Prénom', a.prenom) + champ('nom', 'Nom', a.nom)) +
+      champ('email', 'Email', a.email, ' type="email"') + champ('tel', 'Mobile', a.tel) + champ('pct', 'Parts (%)', a.pct, ' inputmode="decimal" style="width:70px;"') + '</div>';
+  }).join('') + '</div>';
+  h += '<div class="dm-section" data-bloc="dirigeants"><b>Dirigeants</b>' + D.dirigeants.map(function (g, k) {
+    var opts = fonctions(so.forme).map(function (f) { return [f, r.fonctions[f]]; });
+    if (opts.every(function (o) { return o[0] !== g.fonction; })) opts.unshift([g.fonction, (r.fonctions[g.fonction] || g.fonction || '—') + ' (à changer)']);
+    var assoc = g.qualite === 'associe' ? D.associes[parseInt(g.associe || '0', 10)] || {} : null;
+    return '<div class="dm-ligne" data-k="' + k + '"><span class="dm-num">' + (k + 1) + '</span>' + liste('fonction', 'Fonction', g.fonction, opts) +
+      (assoc ? '<span class="dm-info">' + esc(assoc.type === 'morale' ? assoc.denomination : [assoc.prenom, assoc.nom].join(' ')) + ' (associé)</span>'
+             : champ('prenom', 'Prénom', g.prenom) + champ('nom', 'Nom', g.nom) + champ('email', 'Email', g.email, ' type="email"') + champ('tel', 'Mobile', g.tel)) + '</div>';
+  }).join('') + '<div class="lettre-meta">Ajouter ou retirer un associé, ou passer d\u2019une entreprise individuelle à une société : le client refait sa demande.</div></div>';
+  h += '<div class="lettre-actions"><button class="btn-envoyer" onclick="enregistrerDemande(\'' + escJs(code) + '\', this)">Enregistrer les corrections</button>' +
+    '<span class="maj" role="status" aria-live="polite"></span></div><div class="dm-resultat"></div>';
+  return '<div class="dm" data-initial="' + esc(JSON.stringify(D)) + '">' + h + '</div>';
+}
+
+function enregistrerDemande(code, btn) {
+  var dm = btn.closest('.dm'), msg = btn.parentNode.querySelector('.maj'), init = JSON.parse(dm.dataset.initial);
+  var lire = function (racine) { var o = {}; racine.querySelectorAll('[data-cle]').forEach(function (el) { o[el.dataset.cle] = el.value; }); return o; };
+  var so = lire(dm.querySelector('[data-bloc="societe"]'));
+  var corrections = { societe: {}, associes: [], dirigeants: [] }, n = 0;
+  Object.keys(so).forEach(function (k) { if (String(so[k]) !== String(init.societe[k] || '')) { corrections.societe[k] = so[k]; n++; } });
+  dm.querySelectorAll('[data-bloc="associes"] .dm-ligne').forEach(function (div) {
+    var i = +div.dataset.i, a = lire(div), c = {};
+    Object.keys(a).forEach(function (k) { if (String(a[k]) !== String(init.associes[i][k] || '')) { c[k] = a[k]; n++; } });
+    corrections.associes[i] = c;
+  });
+  dm.querySelectorAll('[data-bloc="dirigeants"] .dm-ligne').forEach(function (div) {
+    var k = +div.dataset.k, g = lire(div), c = {};
+    Object.keys(g).forEach(function (x) { if (String(g[x]) !== String(init.dirigeants[k][x] || '')) { c[x] = g[x]; n++; } });
+    corrections.dirigeants[k] = c;
+  });
+  if (!n) { msg.textContent = 'Aucune modification.'; msg.className = 'maj'; return; }
+  if (!confirm(n + ' correction' + (n > 1 ? 's' : '') + ' à enregistrer dans la demande du client. La liste des pièces sera recalculée. Continuer ?')) return;
+  btn.disabled = true; msg.textContent = 'Enregistrement…'; msg.className = 'maj';
+  api({ action: 'adminDemande', email: SESSION.email, token: SESSION.token, code: code, corrections: corrections }, function (r) {
+    btn.disabled = false;
+    if (!r || !r.ok) { msg.textContent = '⚠ ' + ((r && r.error) || 'échec'); msg.className = 'maj ko'; return; }
+    msg.textContent = '✓ ' + (r.changements.length ? r.changements.length + ' correction(s) enregistrée(s).' : (r.message || 'Aucune modification.'));
+    msg.className = 'maj ok';
+    var ck = r.checklist || {}, f = r.fiche || {};
+    var lignes = r.changements.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('');
+    if (ck.ajoutees && ck.ajoutees.length) lignes += '<li>Pièces ajoutées à la liste : ' + esc(ck.ajoutees.join(', ')) + '</li>';
+    if (ck.sansObjet && ck.sansObjet.length) lignes += '<li>Pièces devenues sans objet (« non applicable ») : ' + esc(ck.sansObjet.join(', ')) + '</li>';
+    if (f.ignorees && f.ignorees.length) lignes += '<li>Non reporté sur la fiche, déjà modifié à la main : ' + esc(f.ignorees.join(', ')) + '</li>';
+    if (r.projetStatuts && r.changements.length) lignes += '<li><b>Le projet de statuts « ' + esc(r.projetStatuts) + ' » date d\u2019avant la correction : préparez-en un nouveau.</b></li>';
+    dm.querySelector('.dm-resultat').innerHTML = lignes ? '<ul class="lettre-meta">' + lignes + '</ul>' : '';
+    // La fiche reprend les valeurs reportées
+    var mod = f.modifiees || {};
+    if (Object.keys(mod).length) {
+      DATA.lignes.forEach(function (x) {
+        if (val(x, 'Code dossier') !== code) return;
+        Object.keys(mod).forEach(function (c) { if (DATA.idx[c] !== undefined) x[DATA.idx[c]] = mod[c]; });
+      });
+    }
+    // Les valeurs enregistrées deviennent la référence des corrections suivantes
+    Object.keys(so).forEach(function (k) { init.societe[k] = so[k]; });
+    dm.querySelectorAll('[data-bloc="associes"] .dm-ligne').forEach(function (div) { Object.assign(init.associes[+div.dataset.i], lire(div)); });
+    dm.querySelectorAll('[data-bloc="dirigeants"] .dm-ligne').forEach(function (div) { Object.assign(init.dirigeants[+div.dataset.k], lire(div)); });
+    dm.dataset.initial = JSON.stringify(init);
+  });
+}
+
 // ── Signature électronique des statuts (après le dépôt du capital) ──
 function blocSignatureStatuts(l, code) {
   var ligne = l[DATA.iLigne], st = val(l, 'Statuts — statut'), signes = val(l, 'Statuts signés le');
   return '<div class="statuts-sig" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:10px;">' +
+    (JSE && JSE.preprod ? '<div class="lettre-meta" style="color:#b45309;">⚠ Mode test, en attendant l\u2019homologation ECMA : ' +
+      'l\u2019envoi n\u2019est possible que pour les dossiers de test. Pour un vrai client, faites signer hors portail.</div>' : '') +
     '<div class="lettre-meta"><b>Signature électronique</b> — <span class="statuts-etat">' +
       (signes ? '✓ statuts signés le ' + esc(signes) : st ? esc(st) : 'une fois le capital déposé et le projet finalisé, chaque signataire le signe en ligne (jesignexpert).') +
     '</span></div>' +
@@ -1058,6 +1183,13 @@ function blocPieces(l, ligne) {
       (val(l, 'Code dossier') ? '<button class="btn-rep" onclick="telechargerZip({ code: \'' + escJs(val(l, 'Code dossier')) + '\' }, this)" ' +
         'title="Toutes les pièces, renommées « AAAA-MM-JJ Objet Personne »">⬇ Tout télécharger (.zip)</button>' : '') +
       '<span class="maj" role="status" aria-live="polite"></span>' +
+    '</div>' +
+    '<div class="lettre-actions acte-depot">' +
+      '<select id="acte-type-' + ligne + '" aria-label="Type d\u2019acte"><option value="">Type d\u2019acte…</option>' + ACTES_TYPES.map(function (a) {
+        return '<option value="' + a[0] + '">' + esc(a[1]) + '</option>'; }).join('') + '</select>' +
+      '<label class="btn-rep" style="cursor:pointer;">➕ Ajouter un acte' +
+        '<input type="file" multiple accept="image/*,.pdf,.doc,.docx,.odt" style="display:none;" onchange="deposerPieces(' + ligne + ', this, true)"></label>' +
+      '<span class="maj" role="status" aria-live="polite"></span>' +
     '</div><div class="pieces pieces-dossier" id="pd-' + ligne + '" hidden></div></details>';
 }
 
@@ -1134,18 +1266,36 @@ function chargerPieces(ligne, det, forcer) {
       zone.innerHTML = '<span class="maj ko">⚠ ' + esc((res && res.error) || 'erreur') + '</span>';
       return;
     }
-    zone.innerHTML = listePiecesHtml(res.fichiers);
+    zone.innerHTML = listePiecesGroupees(res.fichiers);
   });
 }
 
+// Fiche : pièces du client, documents en préparation, documents définitifs
+function groupePiece(f) {
+  var n = String(f.nom || '');
+  if (/^\[(Statuts signés|LDM signée|Mandat SEPA signé|Attestation|Acte — )/.test(n) || /^Lettre_confraternelle/i.test(n)) return 'definitif';
+  if (/^\[(Projet — |Statuts à signer|LDM\]|Mandat SEPA\]|CABINET\])/.test(n) || /^Mandat_SEPA/.test(n) ||
+      f.type === 'application/vnd.google-apps.document') return 'preparation';
+  return 'client';
+}
+function listePiecesGroupees(fichiers) {
+  if (!fichiers || !fichiers.length) return listePiecesHtml(fichiers);
+  var G = { client: [], preparation: [], definitif: [] };
+  fichiers.forEach(function (f) { G[groupePiece(f)].push(f); });
+  return [['client', 'Pièces du client'], ['preparation', 'En préparation'], ['definitif', 'Définitifs']].filter(function (g) {
+    return G[g[0]].length; }).map(function (g) {
+    return '<div class="pieces-groupe"><div class="pieces-groupe-titre">' + g[1] + ' (' + G[g[0]].length + ')</div>' + listePiecesHtml(G[g[0]], false, true) + '</div>';
+  }).join('');
+}
+
 // Rendu commun aux deux listes (fiche dossier et pipeline)
-function listePiecesHtml(fichiers, lectureSeule) {
+function listePiecesHtml(fichiers, lectureSeule, sansTitre) {
   if (!fichiers || !fichiers.length) {
     return '<span class="maj">Aucune pièce dans ce dossier pour le moment.</span>';
   }
   var n = fichiers.length;
-  return '<div class="pieces-titre">' + n + ' pièce' + (n > 1 ? 's' : '') +
-    ' jointe' + (n > 1 ? 's' : '') + '</div>' +
+  return (sansTitre ? '' : '<div class="pieces-titre">' + n + ' pièce' + (n > 1 ? 's' : '') +
+    ' jointe' + (n > 1 ? 's' : '') + '</div>') +
     fichiers.map(function (f) {
       var voir = apercuPossible(f.type);
       return '<div class="piece-lig">' +
@@ -1640,8 +1790,16 @@ function appliquerStatutLdm(ligne, statut, el, dateSignature) {
   }
 }
 
-function deposerPieces(ligne, input) {
+// Types d'actes du cabinet (mêmes clés que ACTES_JURIDIQUES côté serveur)
+var ACTES_TYPES = [['statuts-projet', 'Statuts — version de travail'], ['statuts-definitifs', 'Statuts signés'],
+  ['pv', 'Procès-verbal ou décision'], ['annonce-legale', 'Annonce légale (attestation de parution)'],
+  ['dbe', 'Déclaration des bénéficiaires effectifs'], ['guichet-unique', 'Récépissé du guichet unique'], ['kbis', 'Extrait Kbis'],
+  ['travail', 'Autre document en préparation'], ['autre', 'Autre acte définitif']];
+
+function deposerPieces(ligne, input, acte) {
   var msg = input.closest('.lettre-actions').querySelector('.maj');
+  var typeActe = acte ? $('acte-type-' + ligne).value : '';
+  if (acte && !typeActe) { msg.textContent = '⚠ Choisissez d\u2019abord le type d\u2019acte.'; msg.className = 'maj ko'; input.value = ''; return; }
   var fichiers = Array.from(input.files || []);
   if (!fichiers.length) return;
   var refus = refusEnvoi(fichiers);
@@ -1652,7 +1810,7 @@ function deposerPieces(ligne, input) {
 
   lireFichiers(fichiers, 'application/octet-stream').then(function (payload) {
     api({ action: 'adminAjouterPieces', email: SESSION.email, token: SESSION.token,
-          ligne: ligne, fichiers: payload }, function (res) {
+          ligne: ligne, fichiers: payload, acte: typeActe }, function (res) {
       input.value = '';
       if (res && res.ok) {
         msg.textContent = '✓ ' + res.ajoutes + ' document(s) ajouté(s) au dossier.';
@@ -2100,7 +2258,7 @@ function envoyerSignature(ligne, btn) {
       'Signataire : ' + (signataire || 'nom manquant') + ' — ' + (val(l, 'Email') || 'email manquant') + ' — ' + (val(l, 'Mobile') || 'mobile manquant') + '\n' +
       'Modèle ' + (p.modele === 'sci' ? 'SCI' : 'général') + ', signée ' + p.signataire + '\n\n' +
       'La lettre part directement au client : il reçoit le mail de jesignexpert et signe avec un code reçu par SMS.' +
-      (JSE.preprod ? '\n\n(Environnement de test : aucun client réel ne reçoit cette demande.)' : ''))) return;
+      (JSE.preprod ? '\n\n(Mode test, en attendant l\u2019homologation ECMA : la signature n\u2019a pas de valeur ; envoi réservé aux dossiers de test.)' : ''))) return;
   btn.disabled = true;
   msg.textContent = '⏳ Repérage des zones de signature…'; msg.className = 'maj';
   encartsLDM(ligne, p).then(function (encarts) {
