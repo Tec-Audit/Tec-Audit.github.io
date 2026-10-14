@@ -915,6 +915,7 @@ function ficheDossier(l) {
       return '<div><span>' + esc(c[0]) + '</span>' + esc(c[1]) + '</div>';
     }).join('') + '</div>' +
     (comm ? '<div class="comm">💬 ' + esc(comm) + '</div>' : '') +
+    blocLdmSignee(l, lignesSheet) +
     blocPieces(l, lignesSheet) +
     blocCompletude(l, lignesSheet) +
     blocGed(l, lignesSheet) +
@@ -947,6 +948,18 @@ function blocStatuts(l) {
     '<span class="maj" role="status" aria-live="polite"></span></div>' +
     '<div class="statuts-res"></div>' +
     blocSignatureStatuts(l, code) + '</details>';
+}
+
+// ── Lettre de mission signée : ouverte à la demande, jamais au chargement ──
+// La liste des dossiers ne transporte que l'identifiant du fichier ; le PDF n'est
+// rapatrié qu'au clic (aperçu ou téléchargement), puis gardé pour la session.
+function blocLdmSignee(l, ligne) {
+  var id = val(l, 'LDM signée — fichier');
+  if (!id || SESSION.role === 'juridique') return '';
+  return '<div class="ldm-signee" data-ligne-fichier="' + ligne + '"><span>📄 <b>Lettre de mission signée</b>' +
+    (val(l, 'LDM signée le') ? ' le ' + esc(val(l, 'LDM signée le')) : '') + '</span>' +
+    '<button class="piece-act" onclick="apercuPiece(\'' + esc(id) + '\', this)">👁 Aperçu</button>' +
+    '<button class="piece-act" onclick="telechargerPiece(\'' + esc(id) + '\', this)">⬇ Télécharger</button></div>';
 }
 
 // ── Corriger la demande d'une constitution : forme, dénomination, associés… ──
@@ -1579,6 +1592,8 @@ function memoriserPiece(id, o) {
 // au moment de l'accès, sans se fier à la liste qui a fourni l'identifiant.
 function contextePiece(btn) {
   if (!btn || !btn.closest) return {};
+  var lf = btn.closest('[data-ligne-fichier]');
+  if (lf) return { ligne: parseInt(lf.dataset.ligneFichier, 10) };
   var fiche = btn.closest('.pieces-dossier');
   if (fiche) return { ligne: parseInt(fiche.id.replace('pd-', ''), 10) };
   var cp = btn.closest('.completude');
