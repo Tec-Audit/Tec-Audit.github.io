@@ -1129,17 +1129,31 @@ function apercuSignatureStatuts(code, btn) {
   });
 }
 
-function envoyerSignatureStatuts(code, btn, remplacer) {
+// brouillon : sans compte jesignexpert relié, l'associé responsable enverra
+function envoyerSignatureStatuts(code, btn, remplacer, brouillon) {
   var zone = btn.closest('.statuts-sig-plan'), msg = btn.parentNode.querySelector('.maj');
   var sigs = Array.prototype.map.call(zone.querySelectorAll('tbody tr'), function (tr) {
     return { email: tr.querySelector('.sig-email').value.trim(), tel: tr.querySelector('.sig-tel').value.trim() };
   });
-  if (!confirm('Envoyer les statuts en signature à ' + sigs.length + ' signataire' + (sigs.length > 1 ? 's' : '') +
-      ' ?\n\nChacun recevra un email de jesignexpert avec le document à signer.')) return;
+  if (!confirm(brouillon
+      ? 'Déposer les statuts en brouillon sur jesignexpert ?\n\nL\u2019associé responsable recevra par mail le lien pour les envoyer avec son compte.'
+      : 'Envoyer les statuts en signature à ' + sigs.length + ' signataire' + (sigs.length > 1 ? 's' : '') +
+        ' ?\n\nChacun recevra un email de jesignexpert avec le document à signer.')) return;
+  var libelle = btn.textContent;
   btn.disabled = true; btn.textContent = 'Envoi…'; msg.textContent = ''; msg.className = 'maj';
   api({ action: 'adminStatutsSignature', email: SESSION.email, token: SESSION.token, code: code, envoyer: 1,
-        signataires: sigs, remplacer: remplacer ? 1 : 0 }, function (r) {
-    btn.disabled = false; btn.textContent = '✍️ Envoyer en signature';
+        signataires: sigs, remplacer: remplacer ? 1 : 0, brouillon: brouillon ? 1 : 0 }, function (r) {
+    btn.disabled = false; btn.textContent = libelle;
+    // Pas encore de compte jesignexpert relié : le relier (une fois), ou passer par l'associé
+    if (r && r.relierUtilisateur) {
+      msg.className = 'maj';
+      msg.innerHTML = '🔗 ' + esc(r.error) + '<br><button class="btn-rep" type="button">🔗 Relier mon compte jesignexpert</button>' +
+        (r.brouillonPossible ? ' <button class="btn-rep" type="button">Déposer en brouillon pour l\u2019associé</button>' : '');
+      var choix = msg.querySelectorAll('button');
+      choix[0].onclick = function () { relierJse(msg, 'utilisateur'); };
+      if (choix[1]) choix[1].onclick = function () { envoyerSignatureStatuts(code, btn, remplacer, true); };
+      return;
+    }
     if (!r || !r.ok) { msg.textContent = '⚠ ' + ((r && r.error) || 'échec'); msg.className = 'maj ko'; return; }
     var bloc = btn.closest('.statuts-sig');
     bloc.querySelector('.statuts-etat').textContent = r.statut;
@@ -2402,7 +2416,7 @@ function attendreJse(msg, debut, quoi) {
       if (res && res.ok && res.jse && (quoi === 'utilisateur' ? res.jse.envoiDirect : res.jse.connecte)) {
         JSE = res.jse;
         msg.textContent = quoi === 'utilisateur'
-          ? '✓ Envoi direct activé avec le compte jesignexpert ' + (JSE.envoiCompte || '') + '. Cliquez à nouveau sur « Envoyer pour signature ».'
+          ? '✓ Envoi direct activé avec le compte jesignexpert ' + (JSE.envoiCompte || '') + '. Cliquez à nouveau sur le bouton d\u2019envoi.'
           : '✓ jesignexpert relié (cabinet « ' + (JSE.cabinet || 'TEC AUDIT') + ' »). Cliquez à nouveau sur « Envoyer pour signature ».';
         msg.className = 'maj ok'; return;
       }
@@ -2481,7 +2495,7 @@ function retourJse() {
   bandeau.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:50;max-width:92vw;';
   bandeau.textContent = '✓ Connexion à jesignexpert terminée. Vous pouvez fermer cet onglet et revenir à l\u2019espace interne.';
   document.body.appendChild(bandeau);
-  if (SESSION.token && SESSION.role === 'associe') {
+  if (SESSION.token && (quoi === 'utilisateur' || SESSION.role === 'associe')) {
     api({ action: 'adminJse', etape: 'terminer', quoi: quoi, attente: 1, email: SESSION.email, token: SESSION.token }, function (res) {
       if (res && res.ok && res.jse) JSE = res.jse;
     });
