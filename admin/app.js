@@ -2557,7 +2557,7 @@ function blocCompleter(l, ligne) {
 // nombre de champs à compléter dans le titre.
 function blocInfos(l, ligne) {
   var associe = SESSION.role === 'associe';
-  var html = (associe ? choixCollaborateur(l, ligne) : '') + blocCompleter(l, ligne) + (associe ? boutonsModif(l, ligne) : '');
+  var html = (associe ? choixCollaborateur(l, ligne) : '') + champForme(l, ligne) + blocCompleter(l, ligne) + (associe ? boutonsModif(l, ligne) : '');
   if (!html) return '';
   var n = html.split('<span class="tag warn">à compléter</span>').length - 1;
   var aAffecter = associe && !val(l, 'Collaborateur');
@@ -2589,6 +2589,38 @@ function affecterCollaborateur(ligne, sel) {
     if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
     DATA.lignes.forEach(function (x) { if (x[DATA.iLigne] === ligne) x[DATA.idx['Collaborateur']] = valeur; });
     // Tableau, filtre « Collaborateur » et fiche reflètent l'affectation
+    var y = window.scrollY;
+    remplirFiltres(); rendre();
+    window.scrollTo(0, y);
+  });
+}
+
+// Forme juridique, corrigeable sur toute fiche (29/10/2026) : liste de suggestions, saisie
+// libre. Une création de société du portail se corrige dans « Corriger la demande du
+// client », que suivent le projet de statuts et la liste des pièces.
+var FORMES_JURIDIQUES = ['SAS', 'SASU', 'SARL', 'EURL', 'SA', 'SNC', 'SCI', 'Société civile', 'SCM', 'SCP', 'SCEA',
+  'SELARL', 'SELAS', 'SELASU', 'SELURL', 'SPFPL', 'Entreprise individuelle', 'Micro-entreprise', 'LMNP', 'Indivision', 'Association'];
+function champForme(l, ligne) {
+  if (/^Portail — constitution/.test(val(l, 'Source'))) {
+    return '<div class="actions"><span class="lib">Forme juridique</span>' + esc(val(l, 'Forme') || '—') +
+      ' <small>— création de société : à corriger dans « Corriger la demande du client »</small></div>';
+  }
+  return '<div class="actions"><span class="lib">Forme juridique</span>' +
+    '<input type="text" list="formes-juridiques" value="' + esc(val(l, 'Forme')) + '" placeholder="à compléter" style="width:200px;" ' +
+    'onchange="modifierForme(' + ligne + ', this)"><datalist id="formes-juridiques">' +
+    FORMES_JURIDIQUES.map(function (f) { return '<option value="' + esc(f) + '">'; }).join('') + '</datalist>' +
+    '<span class="maj" role="status" aria-live="polite"></span></div>';
+}
+function modifierForme(ligne, el) {
+  var valeur = el.value.replace(/\s+/g, ' ').trim(), msg = el.parentNode.querySelector('.maj');
+  if (!valeur) { msg.textContent = '⚠ indiquez une forme'; msg.className = 'maj ko'; return; }
+  el.disabled = true; msg.textContent = '…'; msg.className = 'maj';
+  api({ action: 'adminUpdate', email: SESSION.email, token: SESSION.token,
+        ligne: ligne, colonne: 'Forme', valeur: valeur }, function (res) {
+    el.disabled = false;
+    if (!res || !res.ok) { msg.textContent = '⚠ ' + ((res && res.error) || 'échec'); msg.className = 'maj ko'; return; }
+    DATA.lignes.forEach(function (x) { if (x[DATA.iLigne] === ligne) x[DATA.idx['Forme']] = valeur; });
+    // Catégorie, filtres et champs de la fiche (régime fiscal d'une société civile) suivent la forme
     var y = window.scrollY;
     remplirFiltres(); rendre();
     window.scrollTo(0, y);
