@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════════════
 var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwbTEFCrnTOjmhycGdb1ShTln6ntnAi-cSeFyPbmIjqoxBqBZRlKwMc44uJev8Q8HI/exec';
 
-var SESSION = { email: '', nom: '', role: '', token: '' };
+var SESSION = { email: '', nom: '', role: '', token: '', droits: [] };
 var DATA = { colonnes: [], lignes: [], idx: {} };
 var JSE = null;   // signature électronique jesignexpert : configurée, reliée au cabinet
 var VUE = 'dossiers';
@@ -151,7 +151,7 @@ function login() {
 
   api({ action: 'adminLogin', email: email, motdepasse: mdp }, function (res) {
     if (res && res.ok) {
-      SESSION = { email: email.toLowerCase(), nom: res.nom, role: res.role, token: res.token };
+      SESSION = { email: email.toLowerCase(), nom: res.nom, role: res.role, token: res.token, droits: res.droits || [] };
       memoriserSessionAdmin();
       ouvrirApp();
     } else {
@@ -229,7 +229,7 @@ function definirMdp() {
 }
 
 function deconnexion() {
-  SESSION = { email: '', nom: '', role: '', token: '' };
+  SESSION = { email: '', nom: '', role: '', token: '', droits: [] };
   oublierSessionAdmin();
   location.reload();
 }
@@ -279,7 +279,7 @@ function messageActualisation(le) {
     'Liste affichée depuis votre dernière consultation de ' + h + ' — actualisation en cours…</div>';
 }
 function memoriserSessionAdmin() {
-  try { localStorage.setItem(CLE_SESSION_ADMIN, JSON.stringify({ email: SESSION.email, nom: SESSION.nom, role: SESSION.role, token: SESSION.token, exp: Date.now() + 8 * 3600 * 1000 })); } catch (e) {}
+  try { localStorage.setItem(CLE_SESSION_ADMIN, JSON.stringify({ email: SESSION.email, nom: SESSION.nom, role: SESSION.role, token: SESSION.token, droits: SESSION.droits || [], exp: Date.now() + 8 * 3600 * 1000 })); } catch (e) {}
 }
 function oublierSessionAdmin() {
   try { localStorage.removeItem(CLE_SESSION_ADMIN); localStorage.removeItem(CLE_MOTEUR_LDM); } catch (e) {}
@@ -290,7 +290,7 @@ function restaurerSessionAdmin() {
   try {
     var s = JSON.parse(localStorage.getItem(CLE_SESSION_ADMIN) || 'null');
     if (!s || !s.token || !s.exp || s.exp < Date.now()) { oublierSessionAdmin(); return false; }
-    SESSION = { email: s.email, nom: s.nom, role: s.role, token: s.token };
+    SESSION = { email: s.email, nom: s.nom, role: s.role, token: s.token, droits: s.droits || [] };
     ouvrirApp();
     return true;
   } catch (e) { return false; }
@@ -300,19 +300,17 @@ function ouvrirApp() {
   $('app').style.display = 'flex';
   $('user-nom').textContent = SESSION.nom;
   $('user-role').textContent = { associe: 'Associé', juridique: 'Juridique' }[SESSION.role] || 'Collaborateur';
-  if (SESSION.role === 'associe') {
-    $('tab-entrees').style.display = '';
-    $('tab-pennylane').style.display = '';
-    $('btn-saisie').style.display = '';   // saisie pour un client : acte d'associé
-  } else {
-    $('btn-saisie').style.display = 'none';
-    // Secrétariat juridique : les demandes de constitution dès leur arrivée, en lecture
-    if (SESSION.role === 'juridique') $('tab-entrees').style.display = '';
-  }
+  // Saisie pour un client et « Nouveaux dossiers » : associés, et collaborateurs qui ont le
+  // droit « onboarding » (onglet Utilisateurs, colonne Droits), ces derniers en lecture
+  var onboarding = SESSION.role === 'associe' || (SESSION.droits || []).indexOf('onboarding') > -1;
+  if (SESSION.role === 'associe') $('tab-pennylane').style.display = '';
+  $('btn-saisie').style.display = onboarding ? '' : 'none';
+  // Secrétariat juridique : les demandes de constitution dès leur arrivée, en lecture
+  if (onboarding || SESSION.role === 'juridique') $('tab-entrees').style.display = '';
   chargerDossiers(function () {
     // Apps Script exécute les requêtes d'un même utilisateur l'une après l'autre :
     // lancer le compteur en parallèle ferait attendre la liste des dossiers.
-    if (SESSION.role === 'associe' || SESSION.role === 'juridique') chargerEntrees(true);
+    if (onboarding || SESSION.role === 'juridique') chargerEntrees(true);
   });
 }
 
