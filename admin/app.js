@@ -2312,7 +2312,7 @@ function envoyerSignature(ligne, btn) {
           '<a href="' + esc(res.lien) + '" target="_blank" rel="noopener">Ouvrez-la sur jesignexpert pour l\u2019envoyer</a>.';
         msg.className = 'maj ko';
       }
-      var fiche = btn.closest('.dossier'), bloc = fiche && fiche.querySelector('.sig-jse');
+      var fiche = btn.closest('.dossier'), bloc = fiche && fiche.querySelector('.sig-jse:not(.mandat-sepa)');
       var neuf = document.createElement('div');
       neuf.innerHTML = blocSignatureJse(ligneDe(ligne) || [], ligne, res);
       if (bloc) bloc.replaceWith(neuf.firstChild);
